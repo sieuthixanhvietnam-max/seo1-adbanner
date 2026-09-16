@@ -1,0 +1,291 @@
+/*
+ * SEO1 Ad Banner — Admin Styles
+ */
+
+/* ── Wrap ──────────────────────────────────────────────────────────────────── */
+.seo1-wrap { max-width: none; }
+
+/* Fix icon alignment in WP buttons */
+.seo1-save-bar .button { display:inline-flex !important; align-items:center; gap:4px; }
+
+/* ── Section jump nav ──────────────────────────────────────────────────────── */
+.seo1-section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 16px 0 20px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid #dcdcde;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+.seo1-section-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #3c434a;
+  background: #f6f7f7;
+  border: 1px solid #dcdcde;
+  border-radius: 20px;
+  text-decoration: none;
+  transition: background .12s, border-color .12s, color .12s;
+  white-space: nowrap;
+}
+.seo1-section-nav-link:hover {
+  background: #e8f0fe;
+  border-color: #c5d9f5;
+  color: #2271b1;
+  text-decoration: none;
+}
+.seo1-section-nav-link .dashicons {
+  font-size: 13px;
+  width: 13px;
+  height: 13px;
+  line-height: 1;
+}
+
+/* ── Sections ──────────────────────────────────────────────────────────────── */
+.seo1-sections { display: flex; flex-direction: column; gap: 0; }
+.seo1-section {
+  scroll-margin-top: 60px; /* offset for sticky save bar */
+  padding-top: 4px;
+}
+.seo1-section-divider {
+  height: 1px;
+  background: #e2e4e7;
+  margin: 8px 0 24px;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────────── */
+.seo1-v-tag { display:inline-flex;align-items:center;background:#e8f0fe;color:#2271b1;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px; }
+.seo1-wrap hr.wp-header-end { margin:16px 0 20px;border-color:#e2e4e7; }
+
+/* ── Panel ─────────────────────────────────────────────────────────────────── */
+.seo1-panel { background:#fff;border:1px solid #dcdcde;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.05),0 1px 2px rgba(0,0,0,.04);margin-bottom:20px;overflow:hidden; }
+.seo1-panel-head { display:flex;align-items:center;gap:10px;padding:13px 18px;background:#f8f9fa;border-bottom:1px solid #ebebec; }
+.seo1-panel-head > .dashicons { font-size:18px;width:18px;height:18px;color:#2271b1;flex-shrink:0; }
+.seo1-panel-head h2 { margin:0;font-size:13px;font-weight:600;color:#1d2327;flex:1; }
+.seo1-badge { background:#e8f0fe;color:#2271b1;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap; }
+
+/* ── Panel body ────────────────────────────────────────────────────────────── */
+.seo1-panel-body { padding:18px 20px; }
+.seo1-panel-body .form-table { margin:0; }
+.seo1-panel-body .form-table th { width:120px;padding:10px 12px 10px 0;font-size:13px;font-weight:500;color:#3c434a;vertical-align:middle; }
+.seo1-panel-body .form-table td { padding:10px 0; }
+
+/* ── Table inside panel ────────────────────────────────────────────────────── */
+.seo1-panel .wp-list-table { margin:0;border:none;border-top:1px solid #ebebec; }
+.seo1-panel .wp-list-table thead th { font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#646970;background:#f6f7f7;padding:9px 14px;white-space:nowrap;border-bottom:1px solid #ebebec; }
+.seo1-panel .wp-list-table td { padding:10px 14px;vertical-align:middle;border-bottom:1px solid #f0f0f1; }
+.seo1-panel .wp-list-table tbody tr:last-child td { border-bottom:none; }
+.seo1-panel .wp-list-table.striped tbody tr:nth-child(odd) td { background:#fff; }
+.seo1-panel .wp-list-table.striped tbody tr:nth-child(even) td { background:#fcfcfc; }
+.seo1-panel .wp-list-table.striped tbody tr:hover td { background:#f0f6fd !important; }
+
+/* ── ID tag & brand chip ───────────────────────────────────────────────────── */
+.seo1-id-tag { display:block;margin-top:3px;font-family:monospace;font-size:10px;color:#adb5bd; }
+.seo1-brand-chip { display:inline-block;background:#e8f0fe;color:#2271b1;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600; }
+
+/* ── Preview URLs ──────────────────────────────────────────────────────────── */
+.seo1-preview-url { font-size:11px;color:#00a32a;word-break:break-all;line-height:1.4; }
+.seo1-preview-empty { font-size:11px;color:#c3c4c7; }
+.seo1-server-link { font-size:11px;color:#2271b1;text-decoration:none;word-break:break-all;line-height:1.4; }
+.seo1-server-link:hover { text-decoration:underline; }
+
+/* ── Brand logo / placeholder ──────────────────────────────────────────────── */
+.seo1-brand-logo { width:40px;height:40px;object-fit:cover;border-radius:4px;border:1px solid #dcdcde;display:block; }
+.seo1-brand-placeholder { width:40px;height:40px;background:#f0f0f1;border-radius:4px;display:flex;align-items:center;justify-content:center; }
+.seo1-brand-placeholder .dashicons { color:#c3c4c7;font-size:18px;width:18px;height:18px; }
+
+/* ── Empty state ───────────────────────────────────────────────────────────── */
+.seo1-empty { padding:32px 20px;text-align:center;color:#646970;font-size:13px; }
+.seo1-empty .dashicons { display:block;margin:0 auto 8px;font-size:32px;width:32px;height:32px;color:#c3c4c7; }
+.seo1-empty a { color:#2271b1; }
+
+/* ── Shortcode table & copy button ────────────────────────────────────────── */
+.seo1-shortcode-table td { font-size:12px;padding:9px 14px;vertical-align:middle; }
+.seo1-shortcode-table td:first-child { white-space:nowrap; }
+.seo1-shortcode-table td:last-child { color:#646970; }
+.seo1-shortcode-table code { background:#f0f0f1;padding:2px 6px;border-radius:3px;font-size:12px; }
+.seo1-copy-btn { display:inline-flex;align-items:center;gap:4px;margin-left:8px;padding:2px 8px;font-size:11px;font-weight:500;color:#2271b1;background:#e8f0fe;border:1px solid #c5d9f5;border-radius:4px;cursor:pointer;vertical-align:middle;transition:background .15s;line-height:1.6; }
+.seo1-copy-btn:hover { background:#d0e4fc; }
+.seo1-copy-btn.copied { color:#00a32a;background:#e6f8eb;border-color:#9fdab0; }
+
+/* ── Sticky save bar – TOP ─────────────────────────────────────────────────── */
+.seo1-save-bar { position:sticky;top:32px;z-index:200;display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #dcdcde;border-radius:8px;padding:10px 16px;margin-bottom:0;box-shadow:0 2px 8px rgba(0,0,0,.07); }
+.seo1-save-bar-left { display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:#3c434a; }
+.seo1-save-bar-left .dashicons { color:#2271b1;font-size:18px;width:18px;height:18px; }
+.seo1-save-bar-right { display:flex;align-items:center;gap:12px; }
+.seo1-save-bar .seo1-save-note { font-size:12px;color:#787c82;display:flex;align-items:center;gap:5px; }
+.seo1-save-bar .seo1-save-note .dashicons { font-size:14px;width:14px;height:14px;color:#a7aaad; }
+
+/* ── Warning badge ─────────────────────────────────────────────────────────── */
+.seo1-warn-no-tracking { display:inline-flex;align-items:center;gap:5px;background:#fff3cd;border:1px solid #f0c040;color:#7a5800;font-size:11px;padding:3px 9px;border-radius:4px;margin-top:5px; }
+
+/* ── Style swatches ────────────────────────────────────────────────────────── */
+.seo1-style-swatches { display:flex;gap:8px;align-items:center;flex-wrap:wrap; }
+.seo1-swatch-item { position:relative;cursor:pointer; }
+.seo1-swatch-item input[type="radio"] { position:absolute;opacity:0;width:0;height:0;pointer-events:none; }
+.seo1-swatch-dot { display:block;width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid rgba(0,0,0,.06);transition:transform .12s,box-shadow .12s; }
+.seo1-swatch-dot.ps-1 { background:linear-gradient(135deg,#16a34a,#15803d); }
+.seo1-swatch-dot.ps-2 { background:linear-gradient(135deg,#dc2626,#b91c1c); }
+.seo1-swatch-dot.ps-3 { background:linear-gradient(135deg,#f59e0b,#d97706); }
+.seo1-swatch-dot.ps-4 { background:linear-gradient(135deg,#1f2937,#111827); }
+.seo1-swatch-dot.ps-5 { background:#fff;border:2px solid #2271b1; }
+.seo1-swatch-dot.ps-6 { background:linear-gradient(135deg,#7c3aed,#6d28d9); }
+.seo1-swatch-dot.ps-7 { background:linear-gradient(135deg,#ea580c,#c2410c); }
+.seo1-swatch-dot.ps-8 { background:linear-gradient(135deg,#2563eb,#1d4ed8); }
+.seo1-swatch-item input:checked + .seo1-swatch-dot { box-shadow:0 0 0 3px #fff,0 0 0 5px #2271b1;transform:scale(1.1); }
+.seo1-swatch-dot:hover { transform:scale(1.08); }
+.seo1-swatch-names { display:flex;gap:8px;margin-top:4px; }
+.seo1-swatch-name { font-size:10px;color:#a7aaad;width:26px;text-align:center;white-space:nowrap;overflow:hidden; }
+
+/* ── CTA card ──────────────────────────────────────────────────────────────── */
+.seo1-cta-card { margin:16px 20px;border:1px solid #e2e4e7;border-radius:8px;overflow:hidden; }
+.seo1-cta-card + .seo1-cta-card { margin-top:12px; }
+.seo1-cta-card-head { display:flex;align-items:center;gap:10px;padding:10px 16px;background:#f6f7f7;border-bottom:1px solid #e2e4e7; }
+.seo1-cta-card-name { font-size:13px;font-weight:600;color:#1d2327;flex:1; }
+.seo1-cta-sc { font-family:monospace;font-size:11px;background:#fff;border:1px solid #dcdcde;color:#646970;padding:2px 8px;border-radius:3px;font-style:normal; }
+.seo1-cta-card-body { display:grid;grid-template-columns:1fr 1fr; }
+.seo1-cta-fields { padding:4px 20px 16px;border-right:1px solid #ebebec; }
+.seo1-cta-frow { display:grid;grid-template-columns:100px 1fr;gap:6px 12px;align-items:start;padding:10px 0;border-bottom:1px solid #f6f7f7; }
+.seo1-cta-frow:last-child { border-bottom:none;padding-bottom:0; }
+.seo1-cta-flabel { font-size:12px;font-weight:500;color:#646970;padding-top:5px;white-space:nowrap; }
+.seo1-cta-fval select,.seo1-cta-fval input[type="text"] { width:100%;font-size:12px;border-radius:4px; }
+.seo1-cta-preview-side { padding:20px 24px;background:#f8f9fa;display:flex;flex-direction:column;gap:20px; }
+.seo1-preview-side-label { font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#b3b8be;margin:0 0 10px; }
+.seo1-preview-btn-wrap { display:flex;align-items:center;justify-content:center;min-height:60px;background:#fff;border:1px solid #e2e4e7;border-radius:8px;padding:16px;overflow:hidden; }
+.seo1-preview-btn { display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:6px;font-size:13px;font-weight:700;border:2px solid transparent;cursor:default;line-height:1.2;max-width:100%;min-width:0;word-break:break-word;overflow-wrap:break-word;white-space:normal;box-shadow:0 2px 6px rgba(0,0,0,.12); }
+.seo1-preview-btn > * { min-width:0;flex-shrink:1; }
+
+/* ── Status dots ───────────────────────────────────────────────────────────── */
+.seo1-status-dot { display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;padding:2px 10px;border-radius:20px; }
+.seo1-status-dot::before { content:'';display:inline-block;width:7px;height:7px;border-radius:50%; }
+.seo1-status-online { background:#d1fae5;color:#065f46; }
+.seo1-status-online::before { background:#10b981; }
+.seo1-status-offline { background:#fee2e2;color:#991b1b; }
+.seo1-status-offline::before { background:#ef4444; }
+
+/* ── API offline message ───────────────────────────────────────────────────── */
+.seo1-api-offline-msg { padding:16px 20px;color:#6b7280;font-style:italic;font-size:13px; }
+
+/* ── Test result ───────────────────────────────────────────────────────────── */
+.seo1-test-result { padding:8px 12px;border-radius:4px;font-size:13px;margin-bottom:12px;line-height:1.5; }
+.seo1-test-result.success { background:#edfaed;border:1px solid #7ad87a;color:#276127; }
+.seo1-test-result.error { background:#fceaea;border:1px solid #e57373;color:#7f1d1d; }
+.seo1-test-result pre { margin:6px 0 0;font-size:11px;white-space:pre-wrap;word-break:break-all;background:rgba(0,0,0,.05);padding:4px 6px;border-radius:3px; }
+
+/* ── CTA: Dashicon header ──────────────────────────────────────────────────── */
+.seo1-cta-dashicon { font-size:20px;width:20px;height:20px;color:#2271b1;flex-shrink:0; }
+
+/* ── CTA: Icon picker ──────────────────────────────────────────────────────── */
+.seo1-icon-picker { display:flex;flex-wrap:wrap;gap:6px;align-items:center; }
+.seo1-icon-option { position:relative;cursor:pointer; }
+.seo1-icon-option input[type="radio"] { position:absolute;opacity:0;width:0;height:0; }
+.seo1-icon-preview { display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:6px;border:2px solid #dcdcde;font-size:18px;cursor:pointer;transition:border-color .12s,background .12s; }
+.seo1-icon-preview:hover { border-color:#2271b1;background:#e8f0fe; }
+.seo1-icon-option input:checked + .seo1-icon-preview { border-color:#2271b1;background:#2271b1;color:#fff; }
+
+/* ── CTA: preview icon ─────────────────────────────────────────────────────── */
+.seo1-preview-icon { font-size:16px;width:16px;height:16px;flex-shrink:0; }
+
+/* ── Review accordion ──────────────────────────────────────────────────────── */
+.seo1-rv-trigger {
+  display:flex; align-items:center; justify-content:space-between;
+  width:100%; padding:10px 18px;
+  background:#f8f9fa; border:none; cursor:pointer; text-align:left;
+  font-family:inherit; font-size:13px; transition:background .12s;
+}
+.seo1-rv-trigger:hover { background:#f0f4fd; }
+.seo1-rv-trigger[aria-expanded="true"] { background:#edf2fb; }
+.seo1-rv-trigger[aria-expanded="true"] .seo1-rv-chevron { transform:rotate(180deg); }
+.seo1-rv-trigger-left { display:flex;align-items:center;gap:8px;flex:1;flex-wrap:wrap; }
+.seo1-rv-trigger-left img { flex-shrink:0; }
+.seo1-rv-trigger-info { display:flex;flex-direction:column;gap:1px; }
+.seo1-rv-trigger-right { display:flex;align-items:center;flex-shrink:0;margin-left:12px; }
+.seo1-rv-body { background:#fff; }
+.seo1-rv-label { display:block;font-size:11px;font-weight:600;color:#646970;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px; }
+
+/* ── Review cards (legacy, kept for compatibility) ─────────────────────────── */
+.seo1-review-card { border:1px solid #e2e4e7;border-radius:8px;margin-bottom:12px;overflow:hidden; }
+.seo1-review-card:last-child { margin-bottom:0; }
+.seo1-review-card-head { display:flex;align-items:center;gap:12px;padding:10px 16px;background:#f6f7f7;border-bottom:1px solid #e2e4e7; }
+.seo1-review-card-body { padding:14px 16px; }
+.seo1-review-grid { display:grid;grid-template-columns:repeat(3,1fr);gap:12px 20px;margin-bottom:12px; }
+.seo1-review-field { display:flex;flex-direction:column;gap:4px; }
+.seo1-review-field label { font-size:11px;font-weight:600;color:#646970;text-transform:uppercase;letter-spacing:.04em; }
+.seo1-review-field input[type="text"],.seo1-review-field textarea { font-size:12px; }
+.seo1-review-field input[type="color"] { width:40px;height:28px;padding:2px;border:1px solid #dcdcde;border-radius:4px;cursor:pointer; }
+.seo1-review-badges { display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 0;border-top:1px solid #f0f0f1;border-bottom:1px solid #f0f0f1;margin-bottom:10px; }
+.seo1-review-badges label { display:flex;align-items:center;gap:6px;cursor:pointer; }
+.seo1-badge-label { display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px; }
+.seo1-badge-trusted { background:#d1fae5;color:#065f46; }
+.seo1-badge-editor { background:#fef9c3;color:#854d0e; }
+.seo1-badge-label .dashicons { font-size:13px;width:13px;height:13px; }
+
+/* ── Tracking section ──────────────────────────────────────────────────────── */
+.seo1-trk-section { padding:20px; }
+.seo1-trk-section + .seo1-trk-section { border-top:1px solid #f0f0f1; }
+.seo1-trk-section-head { display:flex;align-items:center;gap:8px;margin-bottom:14px; }
+.seo1-trk-section-head strong { font-size:13px;color:#1d2327; }
+.seo1-trk-hint { font-size:11px;color:#787c82;margin-left:2px; }
+.seo1-trk-empty-notice { padding:12px 14px;background:#f9f9f9;border:1px solid #dcdcde;border-radius:6px;font-size:12px;color:#787c82;line-height:1.6; }
+.seo1-trk-domain-pill { display:inline-flex;align-items:center;font-size:11px;color:#2271b1;background:#e8f0fe;padding:2px 8px;border-radius:20px;margin-left:8px;font-family:monospace; }
+
+/* Tracking table */
+.seo1-trk-table { margin:0 !important;border:none !important; }
+.seo1-trk-table thead th { font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#646970;background:#f6f7f7;padding:8px 12px !important;white-space:nowrap;border-bottom:1px solid #ebebec; }
+.seo1-trk-table td { padding:10px 12px !important;vertical-align:middle;border-bottom:1px solid #f0f0f1; }
+.seo1-trk-table tbody tr:last-child td { border-bottom:none; }
+.seo1-trk-table tbody tr:hover td { background:#f5f9ff !important; }
+.seo1-col-brand { width:200px; }
+.seo1-col-current { width:280px; }
+.seo1-col-domain { width:160px; }
+.seo1-col-preview { width:240px; }
+.seo1-col-action { width:48px; }
+
+/* Brand cell */
+.seo1-brand-cell { display:flex;align-items:center;gap:8px; }
+.seo1-trk-logo { width:28px;height:28px;object-fit:cover;border-radius:4px;border:1px solid #dcdcde;flex-shrink:0; }
+.seo1-trk-logo-placeholder { width:28px;height:28px;border-radius:4px;background:#e8f0fe;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#2271b1;flex-shrink:0; }
+.seo1-trk-name { display:block;font-size:12px;font-weight:600;color:#1d2327; }
+
+/* Tracking URLs */
+.seo1-trk-url { display:block;font-size:11px;font-family:monospace;color:#3c434a;word-break:break-all;line-height:1.5;background:none;padding:0; }
+.seo1-trk-url-current { color:#00a32a;font-weight:600; }
+.seo1-trk-url-same { color:#646970; }
+.seo1-trk-updated-badge { display:inline-block;margin-top:3px;font-size:10px;font-weight:600;color:#065f46;background:#d1fae5;padding:1px 6px;border-radius:10px; }
+.seo1-trk-input { font-size:12px !important;width:100% !important;max-width:280px; }
+
+/* Badges */
+.seo1-badge-green { background:#d1fae5;color:#065f46; }
+.seo1-badge-warn { background:#fff3cd;color:#7a5800; }
+
+/* Override collapsible */
+.seo1-trk-section-override { padding:0; }
+.seo1-trk-override-trigger {
+  display:flex; align-items:center; justify-content:space-between;
+  width:100%; padding:14px 20px;
+  background:#f8f9fa; border:none; cursor:pointer;
+  font-family:inherit; transition:background .12s;
+  border-top:2px solid #f0f0f1;
+}
+.seo1-trk-override-trigger:hover { background:#f0f4fd; }
+.seo1-trk-override-trigger[aria-expanded="true"] { background:#edf2fb; }
+.seo1-trk-override-trigger[aria-expanded="true"] .seo1-trk-chevron { transform:rotate(180deg); }
+.seo1-trk-override-trigger-left { display:flex;align-items:center;gap:8px;flex:1;flex-wrap:wrap; }
+.seo1-trk-chevron { font-size:16px;width:16px;height:16px;color:#787c82;transition:transform .2s ease;flex-shrink:0; }
+#seo1-trk-override-body { padding:0 20px 20px; }
+#seo1-trk-override-body[hidden] { display:none; }
+
+@media (max-width:900px) {
+  .seo1-cta-card-body { grid-template-columns:1fr; }
+  .seo1-cta-fields { border-right:none;border-bottom:1px solid #ebebec; }
+  .seo1-save-bar { flex-direction:column;gap:10px;align-items:flex-start; }
+  .seo1-review-grid { grid-template-columns:1fr 1fr; }
+  .seo1-section-nav { gap:4px; }
+}

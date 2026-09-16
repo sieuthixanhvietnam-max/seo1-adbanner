@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Next.js
+admin/.next/
+admin/out/
+
+# SQLite data
+backend/data/
+backend/uploads/
+
+# Environment
+.env
+**/.env
+**/.env.local
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PM2
+.pm2/

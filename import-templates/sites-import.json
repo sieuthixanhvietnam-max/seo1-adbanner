@@ -1,0 +1,53 @@
+[
+  {
+    "id": "nganh-g",
+    "name": "Ngành G",
+    "domain": "nganh-g.com",
+    "placements": {
+      "catfish": { "label": "Catfish", "limit": 4, "default_mode": "rotate" },
+      "button":  { "label": "Nút bấm", "limit": 2, "default_mode": "fixed" },
+      "popup":   { "label": "Popup",   "limit": 1, "default_mode": "fixed" }
+    }
+  },
+  {
+    "id": "nganh-s",
+    "name": "Ngành S",
+    "domain": "nganh-s.com",
+    "placements": {
+      "catfish": { "label": "Catfish", "limit": 4,  "default_mode": "rotate" },
+      "button":  { "label": "Nút bấm", "limit": 2,  "default_mode": "fixed" },
+      "popup":   { "label": "Popup",   "limit": 1,  "default_mode": "fixed" },
+      "slider":  { "label": "Slider",  "limit": 10, "default_mode": "rotate" }
+    }
+  },
+  {
+    "id": "phishing-g",
+    "name": "Phishing G",
+    "domain": "phishing-g.com",
+    "placements": {
+      "slider":  { "label": "Slider",  "limit": 10, "default_mode": "rotate" },
+      "catfish": { "label": "Catfish", "limit": 4,  "default_mode": "rotate" },
+      "button":  { "label": "Nút bấm", "limit": 2,  "default_mode": "fixed" },
+      "popup":   { "label": "Popup",   "limit": 1,  "default_mode": "fixed" }
+    }
+  },
+  {
+    "id": "phishing-s",
+    "name": "Phishing S",
+    "domain": "phishing-s.com",
+    "placements": {
+      "slider":  { "label": "Slider",  "limit": 10, "default_mode": "rotate" },
+      "catfish": { "label": "Catfish", "limit": 4,  "default_mode": "rotate" },
+      "button":  { "label": "Nút bấm", "limit": 2,  "default_mode": "fixed" },
+      "popup":   { "label": "Popup",   "limit": 1,  "default_mode": "fixed" }
+    }
+  },
+  {
+    "id": "brand-g",
+    "name": "Brand G",
+    "domain": "brand-g.com",
+    "placements": {
+      "brand-button": { "label": "Brand Button", "limit": 0, "default_mode": "fixed" }
+    }
+  }
+]

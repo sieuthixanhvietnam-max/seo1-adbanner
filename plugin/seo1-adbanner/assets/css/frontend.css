@@ -1,0 +1,10 @@
+/*
+ * SEO1 Ad Banner — Base CSS
+ * Placement CSS is generated dynamically with site prefix via SEO1_CSS::get()
+ */
+
+@keyframes ab-shimmer {
+    0%   { left: -100%; }
+    60%  { left: 150%; }
+    100% { left: 150%; }
+}

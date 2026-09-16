@@ -1,0 +1,26 @@
+{
+  "name": "seo1-adbanner",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "admin"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,admin -c cyan,magenta \"npm run dev -w backend\" \"npm run dev -w admin\"",
+    "dev:backend": "npm run dev -w backend",
+    "dev:admin": "npm run dev -w admin",
+    "build": "npm run build -w admin",
+    "build:all": "npm run build -w admin",
+    "start": "concurrently -n backend,admin -c cyan,magenta \"npm run start -w backend\" \"npm run start -w admin\"",
+    "start:backend": "npm run start -w backend",
+    "start:admin": "npm run start -w admin",
+    "deploy": "bash scripts/deploy.sh",
+    "logs": "pm2 logs",
+    "status": "pm2 status",
+    "restart": "pm2 restart all"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

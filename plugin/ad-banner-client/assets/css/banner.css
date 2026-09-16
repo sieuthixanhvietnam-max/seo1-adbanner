@@ -1,0 +1,322 @@
+/* ══════════════════════════════════════
+   Ad Banner Client v2.0 - banner.css
+   ══════════════════════════════════════ */
+
+/* ── Homepage ── */
+.ab-homepage-wrap {
+  width: 100%;
+  padding: 0 4px;
+  margin: 24px 0;
+}
+
+.ab-homepage-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.ab-homepage-grid a {
+  display: block;
+  line-height: 0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ab-homepage-grid img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Mobile slider */
+.ab-homepage-slider {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .ab-homepage-grid {
+    display: none;
+  }
+
+  .ab-homepage-slider {
+    display: block;
+    position: relative;
+    width: 100%;
+  }
+
+  .ab-slides {
+    width: 100%;
+    overflow: hidden;
+    border-radius: 8px;
+  }
+
+  .ab-slide {
+    display: none;
+  }
+
+  .ab-slide.active {
+    display: block;
+  }
+
+  .ab-slide a {
+    display: block;
+    line-height: 0;
+  }
+
+  .ab-slide img {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  .ab-dots {
+    display: none;
+  }
+}
+
+/* ── Catfish ── */
+.ab-zone.ab-catfish {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+}
+
+.ab-catfish-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.ab-catfish-close {
+  background: #DC2626;
+  color: white;
+  border: none;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: 4px 4px 0 0;
+  letter-spacing: 0.05em;
+  transition: background 0.15s;
+}
+
+.ab-catfish-close:hover {
+  background: #b91c1c;
+}
+
+.ab-catfish-inner {
+  display: flex;
+  gap: 0;
+}
+
+.ab-catfish-inner a {
+  display: block;
+  line-height: 0;
+}
+
+.ab-catfish-inner img {
+  height: 70px;
+  width: auto;
+  display: block;
+}
+
+/* Mobile: 1 banner full width */
+@media (max-width: 768px) {
+  .ab-zone.ab-catfish {
+    display: block;
+  }
+
+  .ab-catfish-wrap {
+    width: 100%;
+  }
+
+  .ab-catfish-inner {
+    width: 100%;
+  }
+
+  .ab-catfish-inner a:not(:first-child) {
+    display: none;
+  }
+
+  .ab-catfish-inner img {
+    width: 100%;
+    height: auto;
+  }
+}
+
+/* ── Sidebar ── */
+.ab-sidebar-wrap {
+  display: block;
+  width: 100%;
+}
+
+/* ── CTA Buttons ── */
+.ab-btn-wrap {
+  display: inline-block;
+  margin: 0 12px 0 0;
+}
+
+.ab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px !important;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.15s;
+  line-height: 1.2;
+  margin: 0 !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.ab-btn-wrap a.ab-btn,
+.ab-btn-wrap a.ab-btn:visited,
+.entry-content .ab-btn,
+.entry-content a.ab-btn {
+  margin: 0 !important;
+  text-decoration: none !important;
+}
+
+.ab-btn:hover {
+  opacity: 0.88;
+  transform: translateY(-1px);
+  text-decoration: none;
+}
+
+.ab-btn svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 768px) {
+  .ab-btn-wrap {
+    margin: 0 6px 0 0;
+  }
+
+  .ab-btn {
+    font-size: 12px;
+    padding: 10px 12px !important;
+  }
+}
+
+/* Preset 1 – Xanh lá gradient */
+a.ab-btn.ab-btn-style-1,
+a.ab-btn.ab-btn-style-1:hover,
+a.ab-btn.ab-btn-style-1:visited {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  color: #ffffff !important;
+  border-color: transparent;
+}
+
+/* Preset 2 – Đỏ nổi bật */
+a.ab-btn.ab-btn-style-2,
+a.ab-btn.ab-btn-style-2:hover,
+a.ab-btn.ab-btn-style-2:visited {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  color: #ffffff !important;
+  border-color: transparent;
+}
+
+/* Preset 3 – Vàng/cam */
+a.ab-btn.ab-btn-style-3,
+a.ab-btn.ab-btn-style-3:hover,
+a.ab-btn.ab-btn-style-3:visited {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #000000 !important;
+  border-color: transparent;
+}
+
+/* Preset 4 – Tối/đen premium */
+a.ab-btn.ab-btn-style-4,
+a.ab-btn.ab-btn-style-4:hover,
+a.ab-btn.ab-btn-style-4:visited {
+  background: linear-gradient(135deg, #1f2937, #111827);
+  color: #ffffff !important;
+  border-color: transparent;
+}
+
+/* Preset 5 – Outline viền */
+a.ab-btn.ab-btn-style-5,
+a.ab-btn.ab-btn-style-5:hover,
+a.ab-btn.ab-btn-style-5:visited {
+  background: transparent;
+  color: #2271b1 !important;
+  border-color: #2271b1;
+}
+
+/* Preset 6 – Tím */
+a.ab-btn.ab-btn-style-6,
+a.ab-btn.ab-btn-style-6:hover,
+a.ab-btn.ab-btn-style-6:visited {
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  color: #ffffff !important;
+  border-color: transparent;
+}
+
+/* Preset 7 – Cam đậm */
+a.ab-btn.ab-btn-style-7,
+a.ab-btn.ab-btn-style-7:hover,
+a.ab-btn.ab-btn-style-7:visited {
+  background: linear-gradient(135deg, #ea580c, #c2410c);
+  color: #ffffff !important;
+  border-color: transparent;
+}
+
+/* Preset 8 – Xanh biển */
+a.ab-btn.ab-btn-style-8,
+a.ab-btn.ab-btn-style-8:hover,
+a.ab-btn.ab-btn-style-8:visited {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #ffffff !important;
+  border-color: transparent;
+}
+
+.ab-sidebar-wrap a {
+  display: block;
+  line-height: 0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ab-sidebar-wrap img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+@keyframes ab-shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.ab-btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(255, 255, 255, 0.25) 50%,
+    transparent 60%
+  );
+  background-size: 200% 100%;
+  animation: ab-shimmer 4s infinite linear;
+  border-radius: inherit;
+  pointer-events: none;
+}
