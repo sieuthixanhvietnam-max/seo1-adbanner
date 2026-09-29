@@ -243,7 +243,7 @@ CSS Variables:
 ## Git
 
 ```
-Repo: https://github.com/hoangphihongchoibet-collab/seo1-adbanner
+Repo: https://github.com/sieuthixanhvietnam-max/seo1-adbanner
 Branch: main
 ```
 
