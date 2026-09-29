@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { toWebp } = require('./image');
 // dotenv loaded once in index.js
 
 const isR2 = !!(process.env.R2_ENDPOINT && process.env.R2_ACCESS_KEY && process.env.R2_SECRET_KEY);
@@ -29,6 +30,7 @@ if (isR2) {
  * @returns {{ key: string, hash: string, size: number }}
  */
 async function uploadFile(buffer, originalname, mimetype, subfolder = 'banners') {
+  ({ buffer, originalname, mimetype } = await toWebp(buffer, originalname, mimetype));
   const ext = path.extname(originalname).toLowerCase();
   const hash = crypto.createHash('md5').update(buffer).digest('hex');
   const key = `${subfolder}/${Date.now()}-${hash.slice(0, 8)}${ext}`;
