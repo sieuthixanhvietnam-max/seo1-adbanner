@@ -173,6 +173,42 @@ runSafe(`
   )
 `);
 
+// API clients — key cho dịch vụ nội bộ gọi /api/ext/v1 (chỉ lưu hash, không lưu key gốc)
+runSafe(`
+  CREATE TABLE IF NOT EXISTS api_clients (
+    id           TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    key_prefix   TEXT NOT NULL,
+    key_hash     TEXT NOT NULL UNIQUE,
+    is_active    INTEGER DEFAULT 1,
+    last_used_at DATETIME,
+    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+// Tài khoản admin: mật khẩu băm bcrypt (không lưu plaintext), token_version để thu hồi mọi phiên khi đổi mật khẩu
+runSafe(`
+  CREATE TABLE IF NOT EXISTS admin_auth (
+    id            INTEGER PRIMARY KEY CHECK (id = 1),
+    password_hash TEXT NOT NULL,
+    token_version INTEGER NOT NULL DEFAULT 1,
+    must_change   INTEGER NOT NULL DEFAULT 0,
+    updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+// Nhật ký đăng nhập: dùng cho khóa tạm theo IP và kiểm tra sau sự cố
+runSafe(`
+  CREATE TABLE IF NOT EXISTS login_attempts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ip         TEXT NOT NULL,
+    success    INTEGER NOT NULL,
+    kind       TEXT NOT NULL DEFAULT 'login',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+runSafe(`CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip, success, created_at)`);
+
 // Index bổ sung cho query slot theo site (fix N+1 performance)
 runSafe(`CREATE INDEX IF NOT EXISTS idx_slots_site_placement ON slots(site_id, placement, position)`);
 runSafe(`CREATE INDEX IF NOT EXISTS idx_sites_domain ON sites(domain)`);

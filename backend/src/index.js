@@ -86,41 +86,14 @@ const loginLimiter = rateLimit({
   skipSuccessfulRequests: true,
 });
 
-// ─── Session token helpers ────────────────────────────────────────────────────
-const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 ngày
+// ─── Auth middleware (token phiên có version, xem utils/adminAuth.js) ────────
+const adminAuth = require('./utils/adminAuth');
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-function signToken(secret) {
-  const payload = Buffer.from(JSON.stringify({
-    iat: Date.now(),
-    exp: Date.now() + SESSION_TTL_MS,
-  })).toString('base64url');
-  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-  return `${payload}.${sig}`;
-}
-
-function verifyToken(token, secret) {
-  if (!token || typeof token !== 'string') return false;
-  const parts = token.split('.');
-  if (parts.length !== 2) return false;
-  const [payload, sig] = parts;
-  const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-  const sigBuf = Buffer.from(sig, 'hex');
-  const expBuf = Buffer.from(expected, 'hex');
-  if (sigBuf.length === 0 || sigBuf.length !== expBuf.length) return false;
-  if (!crypto.timingSafeEqual(sigBuf, expBuf)) return false;
-  try {
-    const { exp } = JSON.parse(Buffer.from(payload, 'base64url').toString());
-    return Date.now() < exp;
-  } catch { return false; }
-}
-
-// ─── Auth middleware ──────────────────────────────────────────────────────────
 const auth = (req, res, next) => {
-  const token  = req.headers['x-admin-token'];
-  const secret = process.env.ADMIN_TOKEN || '';
-  if (!verifyToken(token, secret)) {
-    return res.status(401).json({ success: false, message: 'Unauthorized' });
-  }
+  const session = adminAuth.verifyToken(req.headers['x-admin-token']);
+  if (!session) return res.status(401).json({ success: false, message: 'Unauthorized' });
+  req.adminSession = session;
   next();
 };
 
@@ -133,6 +106,8 @@ const imageDomainsRouter = require('./routes/image-domains');
 const publicRouter       = require('./routes/public');
 const toplistRouter      = require('./routes/toplist');
 const trackingRouter     = require('./routes/tracking');
+const { router: apiClientsRouter } = require('./routes/api-clients');
+const extRouter          = require('./routes/ext');
 
 // ─── Health check (trước mọi auth) ───────────────────────────────────────────
 app.get('/health', (req, res) => {
@@ -155,27 +130,89 @@ app.get('/', (req, res) => res.redirect(301, 'https://google.com'));
 app.get('/login', (req, res) => res.redirect(301, 'https://google.com'));
 
 // ─── Login ────────────────────────────────────────────────────────────────────
+const lockedResponse = (res, wait) => {
+  res.set('Retry-After', String(wait));
+  return res.status(429).json({
+    success: false, code: 'LOCKED', retry_after: wait,
+    message: `Đăng nhập sai quá nhiều lần. Thử lại sau ${Math.ceil(wait / 60)} phút.`,
+  });
+};
+
 app.post('/auth/login', loginLimiter, async (req, res) => {
   try {
-    const { password } = req.body;
-    if (!password) return res.status(400).json({ success: false, message: 'Vui lòng nhập mật khẩu!' });
+    const ip = req.ip;
+    const wait = adminAuth.lockedSeconds(ip);
+    if (wait) return lockedResponse(res, wait);
 
-    const adminPassword = process.env.ADMIN_PASSWORD || '';
-    let isValid = false;
+    const { password } = req.body || {};
+    if (typeof password !== 'string' || !password) return res.status(400).json({ success: false, message: 'Vui lòng nhập mật khẩu!' });
+    if (password.length > 256) return res.status(400).json({ success: false, message: 'Mật khẩu không hợp lệ' });
 
-    if (adminPassword.startsWith('$2')) {
-      // bcrypt hash
-      isValid = await bcrypt.compare(password, adminPassword);
-    } else {
-      // plain text — backward compat
-      isValid = password === adminPassword;
+    // Làm chậm khi cả hệ thống đang bị dò mật khẩu từ nhiều IP
+    const delay = adminAuth.globalDelayMs();
+    if (delay) await sleep(delay);
+
+    const ok = await adminAuth.verifyPassword(password);
+    if (!ok) {
+      adminAuth.record(ip, false);
+      logger.warn({ ip }, '[auth] đăng nhập sai');
+      const locked = adminAuth.lockedSeconds(ip);
+      if (locked) return lockedResponse(res, locked);
+      return res.status(401).json({
+        success: false, message: 'Mật khẩu không đúng.',
+        attempts_left: Math.max(0, adminAuth.MAX_FAILS_PER_IP - adminAuth.failCount(ip)),
+      });
     }
 
-    if (!isValid) return res.status(401).json({ success: false, message: 'Sai mật khẩu!' });
-    const sessionToken = signToken(process.env.ADMIN_TOKEN || '');
-    res.json({ success: true, token: sessionToken });
+    adminAuth.record(ip, true);
+    // Mật khẩu chưa đạt chính sách (ví dụ mật khẩu khởi tạo từ .env) → bắt buộc đổi
+    const weak = !adminAuth.checkPassword(password).ok;
+    if (weak) db.prepare(`UPDATE admin_auth SET must_change = 1 WHERE id = 1`).run();
+    const { token, expiresAt } = adminAuth.signToken();
+    res.json({ success: true, token, expires_at: expiresAt, must_change_password: weak || adminAuth.getState().must_change === 1 });
   } catch (err) {
     logger.error({ err }, 'Login error');
+    res.status(500).json({ success: false, message: 'Lỗi server' });
+  }
+});
+
+// Thông tin phiên hiện tại (frontend dùng để biết có phải đổi mật khẩu không)
+app.get('/auth/session', auth, (req, res) => {
+  res.json({ success: true, expires_at: req.adminSession.exp, must_change_password: adminAuth.getState().must_change === 1 });
+});
+
+// Hoạt động đăng nhập gần đây (để phát hiện truy cập lạ)
+app.get('/auth/activity', auth, (req, res) => {
+  res.json({ success: true, data: adminAuth.recentLogins(10) });
+});
+
+// ─── Đổi mật khẩu: cần mật khẩu hiện tại, mật khẩu mới phải đạt chính sách, thu hồi mọi phiên cũ ──
+app.post('/auth/change-password', auth, async (req, res) => {
+  try {
+    const ip = req.ip;
+    const wait = adminAuth.lockedSeconds(ip, 'change');
+    if (wait) return lockedResponse(res, wait);
+
+    const { current_password, new_password } = req.body || {};
+    if (typeof current_password !== 'string' || typeof new_password !== 'string') {
+      return res.status(400).json({ success: false, message: 'Thiếu thông tin!' });
+    }
+    if (!(await adminAuth.verifyPassword(current_password))) {
+      adminAuth.record(ip, false, 'change');
+      logger.warn({ ip }, '[auth] đổi mật khẩu: sai mật khẩu hiện tại');
+      return res.status(401).json({ success: false, message: 'Mật khẩu hiện tại không đúng.' });
+    }
+    const policy = adminAuth.checkPassword(new_password, { current: current_password });
+    if (!policy.ok) return res.status(400).json({ success: false, message: 'Mật khẩu mới chưa đạt yêu cầu.', errors: policy.errors });
+
+    await adminAuth.setPassword(new_password);
+    adminAuth.record(ip, true, 'change');
+    logger.info({ ip }, '[auth] đã đổi mật khẩu admin, thu hồi các phiên cũ');
+    // Cấp token mới (version mới) để phiên hiện tại không bị đá ra
+    const { token, expiresAt } = adminAuth.signToken();
+    res.json({ success: true, token, expires_at: expiresAt, message: 'Đã đổi mật khẩu. Các phiên đăng nhập khác đã bị đăng xuất.' });
+  } catch (err) {
+    logger.error({ err }, 'Change password error');
     res.status(500).json({ success: false, message: 'Lỗi server' });
   }
 });
@@ -191,6 +228,7 @@ app.use('/api/slots',         auth, slotsRouter);
 app.use('/api/toplist',       auth, toplistRouter);
 app.use('/api/image-domains', auth, imageDomainsRouter);
 app.use('/api/tracking',     auth, trackingRouter);
+app.use('/api/api-clients',  auth, apiClientsRouter);
 
 app.post('/api/cache/clear', auth, (req, res) => {
   const { site_id } = req.body;
@@ -237,6 +275,9 @@ app.use('/wp-content/uploads', async (req, res) => {
 
 // ─── Public routes (rate limited, không cần auth) ─────────────────────────────
 app.use('/api/v2', publicLimiter, publicRouter);
+
+// ─── Ext API (dịch vụ nội bộ, Bearer API key, chỉ đọc) ────────────────────────
+app.use('/api/ext/v1', extRouter);
 
 // ─── Global error handler ─────────────────────────────────────────────────────
 app.use((err, req, res, next) => {

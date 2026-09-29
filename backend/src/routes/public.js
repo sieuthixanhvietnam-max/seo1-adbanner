@@ -48,10 +48,13 @@ router.get('/site/:id/banners', (req, res) => {
     const siteId = req.params.id;
 
     // HTTP cache headers — cho phép Cloudflare/CDN cache 60s
-    res.set({
-      'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=30',
-      'Vary': 'Accept-Encoding',
-    });
+    // (req.isExt: gọi từ /api/ext/v1 — ext.js tự set no-store)
+    if (!req.isExt) {
+      res.set({
+        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=30',
+        'Vary': 'Accept-Encoding',
+      });
+    }
 
     // Tier 1 in-memory cache
     const cacheKey = `site:${siteId}`;

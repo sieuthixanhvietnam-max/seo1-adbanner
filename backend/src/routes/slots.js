@@ -29,6 +29,8 @@ const formatSlotBanner = (b, imageBaseUrl) => ({
   image_url:         buildImageUrl(b.image_key, imageBaseUrl),
   click_url:         b.click_url || getBrandLoginUrl(b.brand_id),
   is_active:         b.is_active === 1,
+  file_size:         b.file_size || 0,
+  created_at:        b.created_at,
   order_in_rotation: b.order_in_rotation,
 });
 
