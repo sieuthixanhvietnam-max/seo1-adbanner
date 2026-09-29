@@ -1,78 +1,221 @@
 'use client'
-import { useEffect, useState, useMemo } from 'react'
-import { useToast } from '@/components/ToastProvider'
-import Header from '@/components/Header'
-import { bannerApi, brandApi } from '@/lib/api'
-import { imgUrl } from '@/lib/api'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ActionIcon, Badge, Box, Button, Card, Checkbox, FileInput, Group, Modal, Paper, ScrollArea,
+  Select, SimpleGrid, Skeleton, Stack, Table, Text, TextInput, ThemeIcon, Tooltip, UnstyledButton,
+} from '@mantine/core'
+import { useHover } from '@mantine/hooks'
+import { modals } from '@mantine/modals'
+import { notifications } from '@mantine/notifications'
+import { AlertTriangle, Clock, HardDrive, Images, LayoutTemplate, Power, Sparkles, ImageOff, ImagePlus, Maximize2, Pencil, Trash2, Upload, X } from 'lucide-react'
+import Page from '@/components/PageHeader'
+import ImageFrame from '@/components/ui/ImageFrame'
+import StatusSwitch from '@/components/ui/StatusSwitch'
+import StatCard from '@/components/ui/StatCard'
+import EntityCard from '@/components/ui/EntityCard'
+import ViewToggle from '@/components/ui/ViewToggle'
+import SearchInput from '@/components/ui/SearchInput'
+import EmptyState from '@/components/ui/EmptyState'
+import { CardGrid, StatGrid } from '@/components/ui/Grids'
+import AssignToSlotsModal from '@/components/AssignToSlotsModal'
+import { useViewMode } from '@/lib/useViewMode'
+import { HEAVY_BYTES, NEW_DAYS, uploadedAt, fmtSize, isHeavy, isNew, timeAgo, fullDate, formatOf, FormatBadge, AgeBadge, UploadedInfo } from '@/lib/bannerInfo'
+import { PlacementIcon } from '@/lib/icons'
+import { bannerApi, brandApi, imgUrl } from '@/lib/api'
 import type { Banner, Brand } from '@/lib/types'
 import { PLACEMENT_COLORS, PLACEMENT_ICONS } from '@/lib/types'
-import { PlacementIcon } from '@/lib/icons'
-import { Select, type SelectOption } from '@/components/ui/Select'
-import { ViewToggle, useViewMode } from '@/components/ui/ViewToggle'
-import { Upload, ImageOff, Trash2, Maximize2, X } from 'lucide-react'
 
 const PLACEMENTS = ['catfish', 'popup', 'slider', 'brand-button']
+const MONO = { input: { fontFamily: 'var(--mantine-font-family-monospace)' } }
+const EMPTY_UP = { brand_id: '', placement: 'catfish', title: '', click_url: '' }
 
-const fmtSize = (bytes?: number) => {
-  if (!bytes) return ''
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+const SORTS = [
+  { value: 'newest', label: 'Mới nhất' },
+  { value: 'oldest', label: 'Cũ nhất' },
+  { value: 'size-desc', label: 'Dung lượng giảm dần' },
+  { value: 'size-asc', label: 'Dung lượng tăng dần' },
+  { value: 'name', label: 'Tên A-Z' },
+]
+
+function PlacementBadge({ p }: { p: string }) {
+  const color = PLACEMENT_COLORS[p] || 'gray'
+  return (
+    <Badge variant="light" color={color} tt="none"
+      leftSection={<PlacementIcon name={PLACEMENT_ICONS[p] || ''} size={12} color={PLACEMENT_COLORS[p]} />}>{p}</Badge>
+  )
+}
+
+function SizeInfo({ b }: { b: Banner }) {
+  const s = fmtSize(b.file_size)
+  return (
+    <Group gap={6} wrap="nowrap">
+      <Text size="xs" c="dimmed" ff="monospace">{s || '—'}</Text>
+      {isHeavy(b) && (
+        <Tooltip label="Ảnh nặng hơn 500 KB, nên nén lại để trang tải nhanh hơn">
+          <Badge variant="light" color="yellow" tt="none" leftSection={<AlertTriangle size={11} />}>Nặng</Badge>
+        </Tooltip>
+      )}
+    </Group>
+  )
+}
+
+// Tỉ lệ khung ảnh theo loại vị trí (thẻ được nhóm theo placement nên cùng nhóm cùng tỉ lệ)
+const STAGE_RATIO: Record<string, string> = { catfish: '3 / 1', popup: '1 / 1', slider: '16 / 9', 'brand-button': '2 / 1' }
+
+function BannerCard({ b, brand, ratio, selected, onToggle, onPreview, onEdit, onRemove, onToggleActive }: {
+  b: Banner; brand: string; ratio: string; selected: boolean
+  onToggle: () => void; onPreview: () => void; onEdit: () => void; onRemove: () => void; onToggleActive: () => void
+}) {
+  const { hovered, ref } = useHover<HTMLDivElement>()
+  const heavy = isHeavy(b)
+  return (
+    <EntityCard selected={selected}
+      media={
+        <Box pos="relative" ref={ref}>
+          {/* Sân khấu ảnh: tỉ lệ cố định, ảnh hiển thị đủ (contain) không bị bóp */}
+          <ImageFrame src={b.image_url ? imgUrl(b.image_url) : null} alt={b.title} onClick={onPreview}
+            style={{ aspectRatio: ratio, cursor: b.image_url ? 'zoom-in' : 'default', opacity: b.is_active ? 1 : 0.5, borderBottom: '1px solid var(--mantine-color-default-border)' }} />
+          <Box pos="absolute" top={8} left={8} p={4} style={{ background: 'var(--mantine-color-body)', borderRadius: 'var(--mantine-radius-default)', lineHeight: 0, opacity: selected || hovered ? 1 : 0.9 }}>
+            <Checkbox checked={selected} onChange={onToggle} aria-label="Chọn banner" styles={{ input: { cursor: 'pointer' } }} />
+          </Box>
+          <Group gap={6} pos="absolute" top={8} right={8} wrap="nowrap">
+            {isNew(b) && <Badge variant="filled" color="green">Mới</Badge>}
+            {!b.is_active && <Badge variant="filled" color="dark">Đang tắt</Badge>}
+          </Group>
+          <Group gap={6} pos="absolute" bottom={8} left={8} wrap="nowrap">
+            <FormatBadge b={b} />
+            {heavy && (
+              <Tooltip label="Ảnh nặng hơn 500 KB, nên nén lại để trang tải nhanh hơn">
+                <Badge variant="filled" color="yellow" tt="none" leftSection={<AlertTriangle size={11} />}>Nặng</Badge>
+              </Tooltip>
+            )}
+          </Group>
+        </Box>
+      }
+      title={<Text fw={600} truncate>{b.title || brand || 'Chưa đặt tên'}</Text>}
+      subtitle={<Text size="xs" c="dimmed" truncate>{brand ? `Brand: ${brand}` : 'Chưa gắn brand'}</Text>}
+      footer={<>
+        <StatusSwitch checked={!!b.is_active} onChange={onToggleActive} aria-label="Bật/tắt banner" />
+        <Group gap={4} wrap="nowrap">
+          <Tooltip label="Sửa"><ActionIcon variant="subtle" color="gray" onClick={onEdit} aria-label="Sửa"><Pencil size={16} /></ActionIcon></Tooltip>
+          <Tooltip label="Xóa banner"><ActionIcon variant="subtle" color="red" onClick={onRemove} aria-label="Xóa banner"><Trash2 size={16} /></ActionIcon></Tooltip>
+        </Group>
+      </>}>
+      <Group gap={6} wrap="nowrap">
+        <Clock size={13} color="var(--mantine-color-dimmed)" />
+        <Tooltip label={fullDate(b) || 'Không rõ ngày upload'}><Text size="xs" c="dimmed">{timeAgo(b)}</Text></Tooltip>
+        <AgeBadge b={b} />
+        <Text size="xs" c="dimmed" ff="monospace" ml="auto">{fmtSize(b.file_size) || '—'}</Text>
+      </Group>
+    </EntityCard>
+  )
 }
 
 export default function BannersPage() {
-  const { toast } = useToast()
-  const [banners, setBanners] = useState<Banner[]>([])
+  const [banners, setBanners] = useState<Banner[] | null>(null)
   const [brands, setBrands] = useState<Brand[]>([])
-  const [loading, setLoading] = useState(true)
+  const [view, setView] = useViewMode('banners', 'cards')
 
-  const [filterPlacement, setFilterPlacement] = useState('')
-  const [filterBrand, setFilterBrand] = useState('')
+  const [query, setQuery] = useState('')
+  const [filterPlacement, setFilterPlacement] = useState<string | null>(null)
+  const [filterBrand, setFilterBrand] = useState<string | null>(null)
+  const [filterFormat, setFilterFormat] = useState<string | null>(null)
+  const [sort, setSort] = useState<string>('newest')
+
   const [preview, setPreview] = useState<Banner | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [assignOpen, setAssignOpen] = useState(false)
 
-  const [view, setView] = useViewMode('banners')
-  const [showUpload, setShowUpload] = useState(false)
-  const [upForm, setUpForm] = useState({ brand_id: '', placement: 'catfish', title: '', click_url: '' })
+  // Upload
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [upForm, setUpForm] = useState(EMPTY_UP)
   const [files, setFiles] = useState<File[]>([])
   const [dragActive, setDragActive] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
 
-  const load = async () => {
-    setLoading(true)
-    const params: any = {}
-    if (filterPlacement) params.placement = filterPlacement
-    if (filterBrand) params.brand_id = filterBrand
-    const [bRes, brRes] = await Promise.all([bannerApi.getAll(params), brandApi.getAll()])
-    if (bRes.success) setBanners(bRes.data || [])
-    if (brRes.success) setBrands(brRes.data || [])
-    setLoading(false)
-  }
-  useEffect(() => { load() }, [filterPlacement, filterBrand])
+  // Edit
+  const [editing, setEditing] = useState<Banner | null>(null)
+  const [editForm, setEditForm] = useState({ title: '', click_url: '', placement: 'catfish', brand_id: '', is_active: true })
+  const [newImage, setNewImage] = useState<File | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(async () => {
+    try {
+      const params: { placement?: string; brand_id?: string } = {}
+      if (filterPlacement) params.placement = filterPlacement
+      if (filterBrand) params.brand_id = filterBrand
+      const [bRes, brRes] = await Promise.all([bannerApi.getAll(params), brandApi.getAll()])
+      if (bRes.success) setBanners(bRes.data || [])
+      else { setBanners(prev => prev ?? []); notifications.show({ color: 'red', message: bRes.message || 'Không tải được danh sách banner.' }) }
+      if (brRes.success) setBrands(brRes.data || [])
+      else notifications.show({ color: 'red', message: brRes.message || 'Không tải được danh sách brand.' })
+    } catch (e: any) {
+      setBanners(prev => prev ?? [])
+      notifications.show({ color: 'red', message: e?.message || 'Lỗi kết nối máy chủ.' })
+    }
+  }, [filterPlacement, filterBrand])
+  useEffect(() => { load() }, [load])
 
   const brandName = (id?: string) => brands.find(b => b.id === id)?.name || id || ''
+  const brandOpts = useMemo(() => brands.map(b => ({ value: b.id, label: b.name })), [brands])
+  const placementOpts = useMemo(() => PLACEMENTS.map(p => ({ value: p, label: p })), [])
 
-  const placementOpt = (p: string): SelectOption => ({
-    value: p, label: p,
-    icon: <PlacementIcon name={PLACEMENT_ICONS[p] || ''} size={14} color={PLACEMENT_COLORS[p] || '#71717A'} />,
-  })
-  const filterPlacementOpts: SelectOption[] = [{ value: '', label: 'Tất cả vị trí' }, ...PLACEMENTS.map(placementOpt)]
-  const filterBrandOpts: SelectOption[] = [{ value: '', label: 'Tất cả brand' }, ...brands.map(b => ({ value: b.id, label: b.name }))]
-  const uploadPlacementOpts: SelectOption[] = PLACEMENTS.map(placementOpt)
-  const uploadBrandOpts: SelectOption[] = [{ value: '', label: '— Không gắn brand —' }, ...brands.map(b => ({ value: b.id, label: b.name }))]
-
-  // Gom banner theo placement để hiển thị trực quan theo nhóm
-  const groups = useMemo(() => {
-    const map = new Map<string, Banner[]>()
-    banners.forEach(b => {
-      const arr = map.get(b.placement) || []
-      arr.push(b); map.set(b.placement, arr)
-    })
-    const order = [...PLACEMENTS, ...Array.from(map.keys()).filter(p => !PLACEMENTS.includes(p))]
-    return order.filter(p => map.has(p)).map(p => ({ placement: p, items: map.get(p)! }))
+  const formatOpts = useMemo(() => {
+    const set = new Set((banners || []).map(formatOf))
+    return Array.from(set).sort().map(f => ({ value: f, label: f }))
   }, [banners])
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    let list = (banners || []).filter(b => {
+      if (filterFormat && formatOf(b) !== filterFormat) return false
+      return !q || [b.title, b.id, brandName(b.brand_id), b.placement].some(v => (v || '').toLowerCase().includes(q))
+    })
+    const t = (b: Banner) => uploadedAt(b) ?? 0
+    const cmp: Record<string, (a: Banner, b: Banner) => number> = {
+      newest: (a, b) => t(b) - t(a),
+      oldest: (a, b) => t(a) - t(b),
+      'size-desc': (a, b) => (b.file_size || 0) - (a.file_size || 0),
+      'size-asc': (a, b) => (a.file_size || 0) - (b.file_size || 0),
+      name: (a, b) => (a.title || '').localeCompare(b.title || '', 'vi'),
+    }
+    return [...list].sort(cmp[sort] || cmp.newest)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [banners, brands, query, filterFormat, sort])
+
+  const groups = useMemo(() => {
+    const map = new Map<string, Banner[]>()
+    filtered.forEach(b => { const a = map.get(b.placement) || []; a.push(b); map.set(b.placement, a) })
+    const order = [...PLACEMENTS, ...Array.from(map.keys()).filter(p => !PLACEMENTS.includes(p))]
+    return order.filter(p => map.has(p)).map(p => ({ placement: p, items: map.get(p)! }))
+  }, [filtered])
+
+  const stats = useMemo(() => {
+    const all = banners || []
+    const total = all.reduce((s, b) => s + (b.file_size || 0), 0)
+    return {
+      total: all.length,
+      active: all.filter(b => b.is_active).length,
+      heavy: all.filter(isHeavy).length,
+      recent: all.filter(isNew).length,
+      size: fmtSize(total) || '0 KB',
+    }
+  }, [banners])
+
+  // ─── Upload ────────────────────────────────────────────────────────────────
+  const previews = useMemo(() => files.map(f => URL.createObjectURL(f)), [files])
+  useEffect(() => () => previews.forEach(u => URL.revokeObjectURL(u)), [previews])
+
+  const addFiles = (list: FileList | File[] | null) => {
+    if (!list) return
+    const imgs = Array.from(list).filter(f => f.type.startsWith('image/'))
+    if (imgs.length) setFiles(prev => [...prev, ...imgs])
+  }
+  const openUpload = () => { setUpForm(EMPTY_UP); setFiles([]); setUploadOpen(true) }
+
   const handleUpload = async () => {
-    if (!files.length) return toast('Chọn ít nhất 1 ảnh!', 'error')
+    if (!files.length) return notifications.show({ color: 'red', message: 'Chọn ít nhất 1 ảnh!' })
     setUploading(true)
     try {
       const fd = new FormData()
@@ -87,247 +230,306 @@ export default function BannersPage() {
       const { inserted, duplicates } = res.data
       let m = `Đã upload ${inserted.length} banner`
       if (duplicates?.length) m += `, ${duplicates.length} trùng bị bỏ qua`
-      toast(m)
-      setShowUpload(false); setFiles([])
-      setUpForm({ brand_id: '', placement: 'catfish', title: '', click_url: '' })
+      notifications.show({ color: 'green', message: m })
+      setUploadOpen(false); setFiles([]); setUpForm(EMPTY_UP)
       load()
     } catch (e: any) {
-      toast(e.message || 'Lỗi upload!', 'error')
-    } finally {
-      setUploading(false)
+      notifications.show({ color: 'red', message: e.message || 'Lỗi upload!' })
+    } finally { setUploading(false) }
+  }
+
+  // ─── Edit ──────────────────────────────────────────────────────────────────
+  const openEdit = (b: Banner) => {
+    setEditing(b); setNewImage(null)
+    setEditForm({ title: b.title || '', click_url: b.click_url || '', placement: b.placement, brand_id: b.brand_id || '', is_active: !!b.is_active })
+  }
+
+  const handleSave = async () => {
+    if (!editing) return
+    setSaving(true)
+    try {
+      const res = await bannerApi.update(editing.id, {
+        title: editForm.title, click_url: editForm.click_url, placement: editForm.placement,
+        brand_id: editForm.brand_id || null, is_active: editForm.is_active,
+      })
+      if (!res.success) throw new Error(res.message || 'Cập nhật thất bại')
+      if (newImage) {
+        const fd = new FormData()
+        fd.append('image', newImage)
+        const ir = await bannerApi.updateImage(editing.id, fd)
+        if (!ir.success) throw new Error(ir.message || 'Đổi ảnh thất bại')
+      }
+      notifications.show({ color: 'green', message: 'Đã cập nhật banner.' })
+      setEditing(null); load()
+    } catch (e: any) {
+      notifications.show({ color: 'red', message: e.message || 'Lỗi!' })
+    } finally { setSaving(false) }
+  }
+
+  const toggleActive = async (b: Banner) => {
+    setBanners(list => (list || []).map(x => x.id === b.id ? { ...x, is_active: !x.is_active } : x))
+    try {
+      const res = await bannerApi.update(b.id, { is_active: !b.is_active })
+      if (!res.success) notifications.show({ color: 'red', message: res.message || 'Cập nhật thất bại' })
+    } catch (e: any) {
+      notifications.show({ color: 'red', message: e?.message || 'Cập nhật thất bại' })
     }
+    load()
   }
 
-  const addFiles = (newFiles: FileList | null) => {
-    if (!newFiles) return
-    const imgs = Array.from(newFiles).filter(f => f.type.startsWith('image/'))
-    setFiles(prev => [...prev, ...imgs])
-  }
+  // ─── Delete ────────────────────────────────────────────────────────────────
+  const remove = (b: Banner) => modals.openConfirmModal({
+    title: 'Xóa banner này?',
+    children: <Text size="sm">Banner sẽ được chuyển vào Recycle Bin và gỡ khỏi các slot đang dùng.</Text>,
+    labels: { confirm: 'Xóa banner', cancel: 'Hủy' }, confirmProps: { color: 'red' },
+    onConfirm: async () => {
+      try {
+        const res = await bannerApi.delete(b.id)
+        if (res.success) {
+          notifications.show({ color: 'green', message: res.detached_slots?.length ? `Đã xóa, gỡ khỏi ${res.detached_slots.length} slot` : 'Đã xóa!' })
+          load()
+        } else notifications.show({ color: 'red', message: res.message || 'Lỗi!' })
+      } catch (e: any) {
+        notifications.show({ color: 'red', message: e?.message || 'Lỗi!' })
+      }
+    },
+  })
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault(); setDragActive(false)
-    addFiles(e.dataTransfer.files)
-  }
+  // ─── Render ────────────────────────────────────────────────────────────────
+  const hasFilter = !!(query.trim() || filterPlacement || filterBrand || filterFormat)
+  const toggleSel = (id: string) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const allFilteredSelected = filtered.length > 0 && filtered.every(b => selected.has(b.id))
+  const toggleAll = () => setSelected(allFilteredSelected ? new Set() : new Set(filtered.map(b => b.id)))
+  const selectedBanners = (banners || []).filter(b => selected.has(b.id))
+  const thumbClick = (b: Banner) => b.image_url ? setPreview(b) : undefined
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Xóa banner này? (chuyển vào Recycle Bin)')) return
-    const res = await bannerApi.delete(id)
-    if (res.success) {
-      toast(res.detached_slots?.length ? `Đã xóa, gỡ khỏi ${res.detached_slots.length} slot` : 'Đã xóa!')
-      load()
-    } else toast(res.message || 'Lỗi!', 'error')
-  }
+  const rowActions = (b: Banner) => (
+    <Group gap={4} justify="flex-end" wrap="nowrap">
+      <Tooltip label="Sửa"><ActionIcon variant="subtle" color="gray" onClick={() => openEdit(b)} aria-label="Sửa"><Pencil size={16} /></ActionIcon></Tooltip>
+      <Tooltip label="Xóa banner"><ActionIcon variant="subtle" color="red" onClick={() => remove(b)} aria-label="Xóa banner"><Trash2 size={16} /></ActionIcon></Tooltip>
+    </Group>
+  )
 
   return (
-    <div>
-      <Header title="Banner Pool" actions={
-        <>
-          <Select value={filterPlacement} onChange={setFilterPlacement} options={filterPlacementOpts} minWidth={150} size="sm" />
-          <Select value={filterBrand} onChange={setFilterBrand} options={filterBrandOpts} minWidth={150} size="sm" />
-          <ViewToggle value={view} onChange={setView} />
-          <button className="btn btn-primary" onClick={() => setShowUpload(true)}><Upload size={14} /> Upload banner</button>
-        </>
-      } />
+    <Page title="Banner Pool" description="Kho ảnh banner dùng chung cho mọi site, gắn brand và placement rồi gán vào slot."
+      actions={<Button leftSection={<Upload size={16} />} onClick={openUpload}>Upload banner</Button>}>
+      <StatGrid>
+        <StatCard label="Tổng banner" value={stats.total} icon={Images} loading={banners === null} hint="Trong kho ảnh" />
+        <StatCard label="Đang bật" value={stats.active} of={stats.total} icon={Power} color="green" loading={banners === null} hint="Có thể gán vào slot" />
+        <StatCard label={`Mới (${NEW_DAYS} ngày)`} value={stats.recent} of={stats.total} icon={Sparkles} color={stats.recent ? 'teal' : 'gray'} loading={banners === null} hint="Upload gần đây" />
+        <StatCard label="Ảnh nặng" value={stats.heavy} of={stats.total} icon={AlertTriangle} color={stats.heavy ? 'yellow' : 'gray'} loading={banners === null} hint="Trên 500 KB" />
+        <StatCard label="Tổng dung lượng" value={stats.size} icon={HardDrive} color="gray" loading={banners === null} hint="Lưu trên R2" />
+      </StatGrid>
 
-      <div style={{ padding: '20px 24px' }} className="fade-in">
-        <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px' }}>{banners.length} banner</div>
+      <Group justify="space-between" wrap="wrap">
+        <Group wrap="wrap">
+          <SearchInput placeholder="Tìm theo tiêu đề, brand, ID"
+            value={query} onChange={e => setQuery(e.currentTarget.value)} />
+          <Select w={{ base: '100%', xs: 170 }} placeholder="Tất cả vị trí" data={placementOpts} value={filterPlacement} onChange={setFilterPlacement} clearable />
+          <Select w={{ base: '100%', xs: 130 }} placeholder="Định dạng" data={formatOpts} value={filterFormat} onChange={setFilterFormat} clearable />
+          <Select w={{ base: '100%', xs: 170 }} placeholder="Tất cả brand" data={brandOpts} value={filterBrand} onChange={setFilterBrand} clearable searchable />
+        </Group>
+        <Group wrap="wrap">
+        <Select w={{ base: '100%', xs: 190 }} aria-label="Sắp xếp" data={SORTS} value={sort} onChange={v => setSort(v || 'newest')} allowDeselect={false} />
+        <ViewToggle value={view} onChange={setView} />
+        </Group>
+      </Group>
 
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>Đang tải...</div>
-        ) : banners.length === 0 ? (
-          <div className="empty">
-            <div className="empty-icon"><ImageOff size={20} /></div>
-            <div style={{ fontSize: '14px', fontWeight: 550, color: 'var(--text-secondary)' }}>Chưa có banner</div>
-            <div style={{ marginTop: '4px' }}>Upload ảnh để bắt đầu xây pool banner.</div>
-          </div>
-        ) : view === 'table' ? (
-          <div className="card" style={{ overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-              <thead>
-                <tr style={{ background: 'var(--bg-subtle)', color: 'var(--text-muted)', textAlign: 'left' }}>
-                  <th style={{ padding: '9px 12px', fontWeight: 500, width: '72px' }}>Ảnh</th>
-                  <th style={{ padding: '9px 12px', fontWeight: 500 }}>Vị trí</th>
-                  <th style={{ padding: '9px 12px', fontWeight: 500 }}>Brand</th>
-                  <th style={{ padding: '9px 12px', fontWeight: 500 }}>Kích thước</th>
-                  <th style={{ padding: '9px 12px', fontWeight: 500 }}>Trạng thái</th>
-                  <th style={{ padding: '9px 12px', fontWeight: 500, width: '48px' }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {banners.map(b => {
-                  const color = PLACEMENT_COLORS[b.placement] || '#71717A'
-                  return (
-                    <tr key={b.id} style={{ borderTop: '1px solid var(--border)' }}>
-                      <td style={{ padding: '8px 12px' }}>
-                        <div className="img-frame" onClick={() => b.image_url && setPreview(b)} style={{ width: '52px', height: '34px', borderRadius: '5px', border: '1px solid var(--border)', cursor: b.image_url ? 'zoom-in' : 'default' }}>
-                          {b.image_url ? <img src={imgUrl(b.image_url)} alt={b.title} /> : <ImageOff size={13} color="var(--text-muted)" />}
-                        </div>
-                      </td>
-                      <td style={{ padding: '8px 12px' }}>
-                        <span className="chip" style={{ background: color + '14', color }}>
-                          <PlacementIcon name={PLACEMENT_ICONS[b.placement] || ''} size={12} color={color} /> {b.placement}
-                        </span>
-                      </td>
-                      <td style={{ padding: '8px 12px' }}>{b.brand_id ? brandName(b.brand_id) : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
-                      <td style={{ padding: '8px 12px' }} className="mono">{fmtSize(b.file_size) || '—'}</td>
-                      <td style={{ padding: '8px 12px' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                          <span className={`dot ${b.is_active ? 'dot-active' : 'dot-off'}`} /> {b.is_active ? 'Bật' : 'Tắt'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '8px 12px' }}>
-                        <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(b.id)} style={{ padding: '4px', color: 'var(--danger)' }} title="Xóa banner"><Trash2 size={14} /></button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
-            {groups.map(({ placement, items }) => {
-              const color = PLACEMENT_COLORS[placement] || '#71717A'
-              return (
-                <section key={placement}>
-                  {/* Group header */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '9px', marginBottom: '12px' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', borderRadius: '7px', background: color + '18', color }}>
-                      <PlacementIcon name={PLACEMENT_ICONS[placement] || ''} size={15} color={color} />
-                    </span>
-                    <span style={{ fontWeight: 600, fontSize: '13.5px', textTransform: 'capitalize' }}>{placement}</span>
-                    <span className="chip" style={{ background: color + '14', color }}>{items.length}</span>
-                    <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-                  </div>
+      {selected.size > 0 && (
+        <Paper p="sm" pos="sticky" top={68} style={{ zIndex: 20, borderColor: 'var(--mantine-primary-color-filled)' }}>
+          <Group justify="space-between" wrap="wrap">
+            <Text size="sm" fw={600}>Đã chọn {selected.size} banner</Text>
+            <Group gap="xs">
+              <Button variant="default" onClick={toggleAll}>{allFilteredSelected ? 'Bỏ chọn tất cả' : `Chọn tất cả (${filtered.length})`}</Button>
+              <Button variant="default" onClick={() => setSelected(new Set())}>Xóa lựa chọn</Button>
+              <Button leftSection={<LayoutTemplate size={16} />} onClick={() => setAssignOpen(true)}>Gán vào slot</Button>
+            </Group>
+          </Group>
+        </Paper>
+      )}
 
-                  {/* Cards — nhỏ gọn, ảnh contain hiện đầy đủ */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '12px' }}>
-                    {items.map(b => (
-                      <div key={b.id} className="card" style={{ overflow: 'hidden' }}>
-                        {/* Image frame — contain trên nền ca-rô để hiện đầy đủ */}
-                        <div
-                          className="img-frame"
-                          onClick={() => b.image_url && setPreview(b)}
-                          style={{ height: '110px', cursor: b.image_url ? 'zoom-in' : 'default', borderBottom: '1px solid var(--border)' }}
-                        >
-                          {b.image_url ? (
-                            <>
-                              <img src={imgUrl(b.image_url)} alt={b.title} />
-                              <span style={{ position: 'absolute', top: '6px', right: '6px', width: '22px', height: '22px', borderRadius: '5px', background: 'rgba(24,24,27,0.55)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.85 }}>
-                                <Maximize2 size={12} />
-                              </span>
-                            </>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', color: 'var(--text-muted)' }}>
-                              <ImageOff size={18} />
-                              <span style={{ fontSize: '10.5px' }}>Không có ảnh</span>
-                            </div>
-                          )}
-                          {!b.is_active && (
-                            <span style={{ position: 'absolute', top: '6px', left: '6px', fontSize: '9.5px', fontWeight: 600, background: '#FEF3C7', color: '#92400E', padding: '1px 6px', borderRadius: '4px' }}>Off</span>
-                          )}
-                        </div>
+      {banners === null ? (
+        <CardGrid>{[0, 1, 2, 3, 4, 5].map(i => <Skeleton key={i} h={320} />)}</CardGrid>
+      ) : filtered.length === 0 ? (
+        <EmptyState icon={ImageOff}
+          title={hasFilter ? 'Không có banner khớp bộ lọc' : 'Chưa có banner'}
+          description={hasFilter ? 'Thử đổi từ khóa, vị trí hoặc brand.' : 'Upload ảnh để bắt đầu xây pool banner.'}
+          action={!hasFilter ? <Button mt="sm" leftSection={<Upload size={16} />} onClick={openUpload}>Upload banner</Button> : undefined} />
+      ) : view === 'table' ? (
+        <Paper>
+          <Table.ScrollContainer minWidth={1040}>
+            <Table verticalSpacing="xs">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th w={40}><Checkbox checked={allFilteredSelected} indeterminate={selected.size > 0 && !allFilteredSelected} onChange={toggleAll} aria-label="Chọn tất cả" /></Table.Th><Table.Th w={88}>Ảnh</Table.Th><Table.Th>Banner</Table.Th><Table.Th>Vị trí</Table.Th><Table.Th>Brand</Table.Th>
+                  <Table.Th>Định dạng</Table.Th><Table.Th>Dung lượng</Table.Th><Table.Th>Ngày upload</Table.Th><Table.Th w={110}>Trạng thái</Table.Th><Table.Th w={96} />
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {filtered.map(b => (
+                  <Table.Tr key={b.id} bg={selected.has(b.id) ? 'var(--mantine-primary-color-light)' : undefined}>
+                    <Table.Td><Checkbox checked={selected.has(b.id)} onChange={() => toggleSel(b.id)} aria-label="Chọn banner" /></Table.Td>
+                    <Table.Td>
+                      <ImageFrame src={b.image_url ? imgUrl(b.image_url) : null} alt={b.title} onClick={() => thumbClick(b)}
+                        style={{ width: 64, height: 40, borderRadius: 4, border: '1px solid var(--mantine-color-default-border)', cursor: b.image_url ? 'zoom-in' : 'default' }} />
+                    </Table.Td>
+                    <Table.Td>
+                      <Text fw={600} size="sm" lineClamp={1}>{b.title || '(không có tiêu đề)'}</Text>
+                      <Text size="xs" c="dimmed" ff="monospace">{b.id.slice(0, 8)}</Text>
+                    </Table.Td>
+                    <Table.Td><PlacementBadge p={b.placement} /></Table.Td>
+                    <Table.Td>{b.brand_id ? brandName(b.brand_id) : <Text c="dimmed">—</Text>}</Table.Td>
+                    <Table.Td><FormatBadge b={b} /></Table.Td>
+                    <Table.Td><SizeInfo b={b} /></Table.Td>
+                    <Table.Td><UploadedInfo b={b} /></Table.Td>
+                    <Table.Td><StatusSwitch checked={!!b.is_active} onChange={() => toggleActive(b)} aria-label="Bật/tắt banner" /></Table.Td>
+                    <Table.Td>{rowActions(b)}</Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
+        </Paper>
+      ) : (
+        <Stack gap="xl">
+          {groups.map(({ placement, items }) => (
+            <Stack key={placement} gap="sm">
+              <Group gap="xs">
+                <PlacementBadge p={placement} />
+                <Text size="sm" c="dimmed">{items.length} banner</Text>
+              </Group>
+              <CardGrid>
+                {items.map(b => (
+                  <BannerCard key={b.id} b={b} ratio={STAGE_RATIO[placement] || '16 / 10'} brand={b.brand_id ? brandName(b.brand_id) : ''} selected={selected.has(b.id)}
+                    onToggle={() => toggleSel(b.id)} onPreview={() => thumbClick(b)} onEdit={() => openEdit(b)}
+                    onRemove={() => remove(b)} onToggleActive={() => toggleActive(b)} />
+                ))}
+              </CardGrid>
+            </Stack>
+          ))}
+        </Stack>
+      )}
 
-                        {/* Footer */}
-                        <div style={{ padding: '8px 10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            {b.brand_id ? (
-                              <div style={{ fontWeight: 600, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{brandName(b.brand_id)}</div>
-                            ) : (
-                              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Chưa gắn brand</div>
-                            )}
-                            <div className="mono" style={{ color: 'var(--text-muted)', fontSize: '10.5px' }}>{fmtSize(b.file_size) || b.id.slice(0, 8)}</div>
-                          </div>
-                          <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(b.id)} style={{ padding: '4px', color: 'var(--danger)' }} title="Xóa banner">
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )
-            })}
-          </div>
+      <AssignToSlotsModal opened={assignOpen} banners={selectedBanners} onClose={() => setAssignOpen(false)} onDone={() => setSelected(new Set())} />
+
+      {/* Xem ảnh đầy đủ */}
+      <Modal opened={!!preview} onClose={() => setPreview(null)} size="xl" title={preview?.title || 'Xem banner'}>
+        {preview && (
+          <Stack>
+            <ImageFrame natural src={preview.image_url ? imgUrl(preview.image_url) : null} alt={preview.title}
+              style={{ minHeight: 200, maxHeight: '65vh', padding: 12, borderRadius: 4, border: '1px solid var(--mantine-color-default-border)' }} />
+            <Group gap="xs">
+              <PlacementBadge p={preview.placement} />
+              {preview.brand_id && <Text size="sm" fw={600}>{brandName(preview.brand_id)}</Text>}
+              <SizeInfo b={preview} />
+            </Group>
+          </Stack>
         )}
-      </div>
+      </Modal>
 
-      {/* Lightbox xem đầy đủ */}
-      {preview && preview.image_url && (
-        <div className="modal-overlay" onClick={() => setPreview(null)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px' }}>
-          <button className="btn btn-ghost btn-sm" onClick={() => setPreview(null)} style={{ position: 'fixed', top: '20px', right: '20px', color: '#fff', zIndex: 1 }}><X size={20} /></button>
-          <div className="img-frame" onClick={e => e.stopPropagation()} style={{ flexDirection: 'column', borderRadius: 'var(--radius-lg)', padding: '12px', maxWidth: '90vw', maxHeight: '85vh' }}>
-            <img src={imgUrl(preview.image_url)} alt={preview.title} style={{ maxHeight: 'calc(85vh - 64px)' }} />
-            <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-              <span className="chip" style={{ background: (PLACEMENT_COLORS[preview.placement] || '#71717A') + '14', color: PLACEMENT_COLORS[preview.placement] || '#71717A' }}>{preview.placement}</span>
-              {preview.brand_id && <span style={{ fontWeight: 600 }}>{brandName(preview.brand_id)}</span>}
-              {preview.file_size ? <span className="mono" style={{ color: 'var(--text-muted)' }}>{fmtSize(preview.file_size)}</span> : null}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Upload */}
+      <Modal opened={uploadOpen} onClose={() => !uploading && setUploadOpen(false)} size="lg" title="Upload banner (nhiều ảnh)"
+        scrollAreaComponent={ScrollArea.Autosize}>
+        <Stack>
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <Select label="Vị trí (placement)" data={placementOpts} value={upForm.placement} allowDeselect={false}
+              onChange={v => setUpForm(f => ({ ...f, placement: v || 'catfish' }))} />
+            <Select label="Brand (tùy chọn)" placeholder="Không gắn brand" data={brandOpts} value={upForm.brand_id || null} clearable searchable
+              onChange={v => setUpForm(f => ({ ...f, brand_id: v || '' }))} />
+          </SimpleGrid>
+          <TextInput label="Click URL" description="Để trống = dùng URL brand" placeholder="(tùy chọn)" styles={MONO}
+            value={upForm.click_url} onChange={e => setUpForm(f => ({ ...f, click_url: e.currentTarget.value }))} />
 
-      {showUpload && (
-        <div className="modal-overlay" onClick={() => setShowUpload(false)}>
-          <div className="modal" style={{ width: '480px', maxHeight: '90vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">Upload banner (nhiều ảnh)<button className="btn btn-ghost btn-sm" onClick={() => setShowUpload(false)}><X size={16} /></button></div>
-            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div>
-                <label className="label">Vị trí (placement)</label>
-                <Select value={upForm.placement} onChange={v => setUpForm(f => ({ ...f, placement: v }))} options={uploadPlacementOpts} />
-              </div>
-              <div>
-                <label className="label">Brand (tùy chọn)</label>
-                <Select value={upForm.brand_id} onChange={v => setUpForm(f => ({ ...f, brand_id: v }))} options={uploadBrandOpts} placeholder="— Không gắn brand —" />
-              </div>
-              <div>
-                <label className="label">Click URL (để trống = dùng URL brand)</label>
-                <input className="input" value={upForm.click_url} onChange={e => setUpForm(f => ({ ...f, click_url: e.target.value }))} placeholder="(tùy chọn)" />
-              </div>
-              <div>
-                <label className="label">Ảnh (kéo-thả hoặc chọn nhiều)</label>
-                <div
-                  onDragOver={e => { e.preventDefault(); setDragActive(true) }}
-                  onDragLeave={() => setDragActive(false)}
-                  onDrop={handleDrop}
-                  onClick={() => document.getElementById('file-input')?.click()}
-                  style={{
-                    border: `2px dashed ${dragActive ? 'var(--accent)' : 'var(--border-strong)'}`,
-                    borderRadius: '10px', padding: '24px', textAlign: 'center', cursor: 'pointer',
-                    background: dragActive ? 'var(--bg-active)' : 'var(--bg-subtle)', transition: 'all 0.15s',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px', color: 'var(--accent)' }}><Upload size={24} /></div>
-                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                    Kéo-thả ảnh vào đây, hoặc bấm để chọn
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>jpg, png, gif, webp · tối đa 5MB/ảnh</div>
-                  <input id="file-input" type="file" accept="image/*" multiple onChange={e => addFiles(e.target.files)} style={{ display: 'none' }} />
-                </div>
+          <Box>
+            <Text size="sm" fw={500} mb={4}>Ảnh (kéo-thả hoặc chọn nhiều)</Text>
+            <UnstyledButton
+              w="100%"
+              onClick={() => fileRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); setDragActive(true) }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={e => { e.preventDefault(); setDragActive(false); addFiles(e.dataTransfer.files) }}
+              style={{
+                border: `2px dashed ${dragActive ? 'var(--mantine-color-brand-filled)' : 'var(--mantine-color-default-border)'}`,
+                borderRadius: 'var(--mantine-radius-default)', padding: 'var(--mantine-spacing-lg)',
+                background: dragActive ? 'var(--mantine-color-default-hover)' : 'var(--mantine-color-default)',
+              }}
+            >
+              <Stack align="center" gap={4}>
+                <ThemeIcon variant="light" size={40} radius="xl"><ImagePlus size={20} strokeWidth={1.8} /></ThemeIcon>
+                <Text size="sm" fw={500}>Kéo-thả ảnh vào đây, hoặc bấm để chọn</Text>
+                <Text size="xs" c="dimmed">jpg, png, gif, webp · tối đa 5MB/ảnh</Text>
+              </Stack>
+            </UnstyledButton>
+            <input ref={fileRef} type="file" accept="image/*" multiple hidden
+              onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
+          </Box>
 
-                {files.length > 0 && (
-                  <div style={{ marginTop: '12px' }}>
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>{files.length} ảnh đã chọn:</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
-                      {files.map((f, i) => (
-                        <div key={i} className="img-frame" style={{ position: 'relative', aspectRatio: '1', borderRadius: '6px', border: '1px solid var(--border)' }}>
-                          <img src={URL.createObjectURL(f)} alt={f.name} />
-                          <button onClick={(e) => { e.stopPropagation(); setFiles(prev => prev.filter((_, idx) => idx !== i)) }}
-                            style={{ position: 'absolute', top: '-5px', right: '-5px', width: '18px', height: '18px', background: 'var(--danger)', color: '#fff', border: 'none', borderRadius: '50%', cursor: 'pointer', fontSize: '11px', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={11} /></button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowUpload(false)}>Hủy</button>
-              <button className="btn btn-primary" onClick={handleUpload} disabled={uploading}>{uploading ? 'Đang upload...' : 'Upload'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+          {files.length > 0 && (
+            <Stack gap="xs">
+              <Group justify="space-between">
+                <Text size="sm" c="dimmed">{files.length} ảnh đã chọn</Text>
+                <Button variant="subtle" color="gray" size="compact-sm" onClick={() => setFiles([])}>Bỏ chọn tất cả</Button>
+              </Group>
+              <SimpleGrid cols={{ base: 2, xs: 3, sm: 4 }} spacing="xs">
+                {files.map((f, i) => (
+                  <Box key={`${f.name}-${i}`} pos="relative">
+                    <ImageFrame src={previews[i]} alt={f.name}
+                      style={{ aspectRatio: '1', borderRadius: 4, border: '1px solid var(--mantine-color-default-border)' }} />
+                    <Tooltip label="Bỏ ảnh">
+                      <ActionIcon pos="absolute" top={4} right={4} size="sm" variant="default" aria-label="Bỏ ảnh"
+                        onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))}><X size={12} /></ActionIcon>
+                    </Tooltip>
+                    <Group gap={4} mt={2} wrap="nowrap">
+                      <Text size="xs" c={f.size > HEAVY_BYTES ? 'yellow.8' : 'dimmed'} ff="monospace">{fmtSize(f.size)}</Text>
+                      {f.size > HEAVY_BYTES && <AlertTriangle size={11} color="var(--mantine-color-yellow-6)" />}
+                    </Group>
+                  </Box>
+                ))}
+              </SimpleGrid>
+            </Stack>
+          )}
+
+          <Group justify="flex-end" mt="xs">
+            <Button variant="default" onClick={() => setUploadOpen(false)} disabled={uploading}>Hủy</Button>
+            <Button onClick={handleUpload} loading={uploading} leftSection={<Upload size={16} />}>Upload</Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      {/* Sửa banner */}
+      <Modal opened={!!editing} onClose={() => !saving && setEditing(null)} size="lg" title="Sửa banner"
+        scrollAreaComponent={ScrollArea.Autosize}>
+        {editing && (
+          <Stack>
+            <Group align="flex-start" wrap="nowrap">
+              <ImageFrame src={editing.image_url ? imgUrl(editing.image_url) : null} alt={editing.title}
+                style={{ width: 140, height: 90, flexShrink: 0, borderRadius: 4, border: '1px solid var(--mantine-color-default-border)' }} />
+              <Stack gap={6} style={{ minWidth: 0, flex: 1 }}>
+                <FileInput label="Thay ảnh" description="Chọn ảnh mới để thay thế ảnh hiện tại" placeholder="Chọn ảnh..." accept="image/*" clearable
+                  leftSection={<ImagePlus size={16} />} value={newImage} onChange={setNewImage} />
+                <Group gap="xs">
+                  <SizeInfo b={editing} />
+                  {newImage && <Text size="xs" c="dimmed">Ảnh mới: <Text span ff="monospace" c={newImage.size > HEAVY_BYTES ? 'yellow.8' : undefined}>{fmtSize(newImage.size)}</Text></Text>}
+                </Group>
+              </Stack>
+            </Group>
+            <TextInput label="Tiêu đề" value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.currentTarget.value }))} />
+            <SimpleGrid cols={{ base: 1, sm: 2 }}>
+              <Select label="Vị trí (placement)" data={placementOpts.some(o => o.value === editForm.placement) ? placementOpts : [...placementOpts, { value: editForm.placement, label: editForm.placement }]}
+                value={editForm.placement} allowDeselect={false} onChange={v => setEditForm(f => ({ ...f, placement: v || f.placement }))} />
+              <Select label="Brand" placeholder="Không gắn brand" data={brandOpts} value={editForm.brand_id || null} clearable searchable
+                onChange={v => setEditForm(f => ({ ...f, brand_id: v || '' }))} />
+            </SimpleGrid>
+            <TextInput label="Click URL" description="Để trống = dùng URL brand" styles={MONO} value={editForm.click_url}
+              onChange={e => setEditForm(f => ({ ...f, click_url: e.currentTarget.value }))} />
+            <StatusSwitch checked={editForm.is_active} label="Đang bật" onChange={e => setEditForm(f => ({ ...f, is_active: e.currentTarget.checked }))} />
+            <Group justify="flex-end" mt="xs">
+              <Button variant="default" onClick={() => setEditing(null)} disabled={saving}>Hủy</Button>
+              <Button onClick={handleSave} loading={saving}>Lưu</Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
+    </Page>
   )
 }

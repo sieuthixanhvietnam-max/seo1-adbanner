@@ -3,6 +3,8 @@
 export interface Site {
   id: string
   name: string
+  domain?: string
+  site_type?: string
   placements: Record<string, PlacementConfig>
   image_domain_id?: string
   image_base_url?: string
@@ -93,7 +95,7 @@ export interface SlotsResponse {
 
 export const PLACEMENT_COLORS: Record<string, string> = {
   catfish:      '#0891B2',
-  button:       '#7C3AED',
+  button:       '#CA8A04',
   popup:        '#DB2777',
   slider:       '#059669',
   'brand-button': '#EA580C',
@@ -101,9 +103,9 @@ export const PLACEMENT_COLORS: Record<string, string> = {
 
 // Lucide icon names — resolved in components via icon map
 export const PLACEMENT_ICONS: Record<string, string> = {
-  catfish:      'Fish',
-  button:       'MousePointerClick',
-  popup:        'MessageSquare',
-  slider:       'GalleryHorizontalEnd',
+  catfish:      'PanelBottom',     // banner dính đáy màn hình
+  button:       'SquareMousePointer',
+  popup:        'AppWindow',
+  slider:       'Images',
   'brand-button': 'Tag',
 }

@@ -1,19 +1,29 @@
 'use client'
-import { useState, useEffect } from 'react'
-import Header from '@/components/Header'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  ActionIcon, Badge, Button, Chip, Code, Grid, Group, Modal, NumberInput, 
+  ScrollArea, SegmentedControl, Select, Skeleton, Stack, Table, Text, TextInput,
+  Paper, Textarea, ThemeIcon, Tooltip,
+} from '@mantine/core'
+import { modals } from '@mantine/modals'
+import { notifications } from '@mantine/notifications'
+import { Globe, Pencil, Plus, Power, PowerOff, Trash2, Upload } from 'lucide-react'
+import Page from '@/components/PageHeader'
 import { siteApi, getBaseUrl, jsonHeaders } from '@/lib/api'
 import type { Site } from '@/lib/types'
 import { PLACEMENT_COLORS } from '@/lib/types'
-import { Select } from '@/components/ui/Select'
-import { ViewToggle, useViewMode } from '@/components/ui/ViewToggle'
-import { Plus, Globe, Pencil, Trash2, Image as ImageIcon, Upload } from 'lucide-react'
-import { useToast } from '@/components/ToastProvider'
+import { useViewMode } from '@/lib/useViewMode'
+import StatusSwitch from '@/components/ui/StatusSwitch'
+import StatCard from '@/components/ui/StatCard'
+import EntityCard from '@/components/ui/EntityCard'
+import ViewToggle from '@/components/ui/ViewToggle'
+import SearchInput from '@/components/ui/SearchInput'
+import EmptyState from '@/components/ui/EmptyState'
+import { StatGrid, CardGrid } from '@/components/ui/Grids'
 
 const BULK_SAMPLE = JSON.stringify([
   {
-    id: 'nganh-g',
-    name: 'Ngành G',
-    domain: 'nganh-g.com',
+    id: 'nganh-g', name: 'Ngành G', domain: 'nganh-g.com',
     placements: {
       catfish: { label: 'Catfish', limit: 4, default_mode: 'rotate' },
       button:  { label: 'Nút bấm', limit: 2, default_mode: 'fixed' },
@@ -22,22 +32,23 @@ const BULK_SAMPLE = JSON.stringify([
   },
 ], null, 2)
 
-const TEMPLATES: Record<string, any> = {
-  'nganh': {
+const TEMPLATES: Record<string, Record<string, any>> = {
+  nganh: {
     catfish: { label: 'Catfish', limit: 4, default_mode: 'rotate' },
     button:  { label: 'Nút bấm', limit: 2, default_mode: 'fixed' },
     popup:   { label: 'Popup',   limit: 1, default_mode: 'fixed' },
   },
-  'phishing': {
+  phishing: {
     slider:  { label: 'Slider',  limit: 10, default_mode: 'rotate' },
     catfish: { label: 'Catfish', limit: 4,  default_mode: 'rotate' },
     button:  { label: 'Nút bấm', limit: 2,  default_mode: 'fixed' },
     popup:   { label: 'Popup',   limit: 1,  default_mode: 'fixed' },
   },
-  'brand': { 'brand-button': { label: 'Brand Button', limit: 0, default_mode: 'fixed' } },
+  brand: { 'brand-button': { label: 'Brand Button', limit: 0, default_mode: 'fixed' } },
 }
 
 const MODE_OPTS = [{ value: 'fixed', label: 'Fixed' }, { value: 'rotate', label: 'Rotate' }]
+const MONO = { input: { fontFamily: 'var(--mantine-font-family-monospace)' } }
 
 interface PRow { key: string; label: string; limit: number; default_mode: string }
 
@@ -46,305 +57,350 @@ const placementsToRows = (obj: Record<string, any>): PRow[] =>
     key, label: cfg.label || '', limit: cfg.limit ?? 0, default_mode: cfg.default_mode || 'fixed',
   }))
 
-const rowsToPlacements = (rows: PRow[]): Record<string, any> => {
+const rowsToPlacements = (rows: PRow[]) => {
   const out: Record<string, any> = {}
   rows.forEach(r => {
     const k = r.key.trim()
-    if (!k) return
-    out[k] = { label: r.label || k, limit: Number(r.limit) || 0, default_mode: r.default_mode }
+    if (k) out[k] = { label: r.label || k, limit: Number(r.limit) || 0, default_mode: r.default_mode }
   })
   return out
 }
 
+function PlacementBadges({ site }: { site: Site }) {
+  const entries = Object.entries(site.placements || {})
+  if (!entries.length) return <Text c="dimmed" size="sm">—</Text>
+  return (
+    <Group gap={6}>
+      {entries.map(([p, cfg]) => (
+        <Badge key={p} variant="light" color={PLACEMENT_COLORS[p] || 'gray'} tt="none">{cfg.label} · {cfg.limit}</Badge>
+      ))}
+    </Group>
+  )
+}
+
 export default function SitesPage() {
-  const { toast } = useToast()
-  const [sites, setSites] = useState<Site[]>([])
-  const [view, setView] = useViewMode('sites')
-  const [showForm, setShowForm] = useState(false)
+  const [sites, setSites] = useState<Site[] | null>(null)
+  const [view, setView] = useViewMode('sites', 'table')
+  const [query, setQuery] = useState('')
+  const [status, setStatus] = useState<'all' | 'on' | 'off'>('all')
+
+  const [formOpen, setFormOpen] = useState(false)
   const [editSite, setEditSite] = useState<Site | null>(null)
   const [form, setForm] = useState({ id: '', name: '', domain: '', site_type: '', template: 'nganh', placements: '' })
-  const [pmode, setPmode] = useState<'manual' | 'json'>('manual')  // chế độ điền placements
+  const [pmode, setPmode] = useState<'manual' | 'json'>('manual')
   const [rows, setRows] = useState<PRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [showBulk, setShowBulk] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const [bulkOpen, setBulkOpen] = useState(false)
   const [bulkJson, setBulkJson] = useState('')
   const [bulking, setBulking] = useState(false)
 
-  const load = () => siteApi.getAll().then(r => { if (r.success) setSites(r.data || []) })
+  const load = () => siteApi.getAll().then(r => { if (r.success) setSites(r.data || []); else setSites([]) })
   useEffect(() => { load() }, [])
 
+  const stats = useMemo(() => {
+    const all = sites || []
+    return { total: all.length, on: all.filter(s => s.is_active).length, off: all.filter(s => !s.is_active).length }
+  }, [sites])
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return (sites || []).filter(s => {
+      if (status === 'on' && !s.is_active) return false
+      if (status === 'off' && s.is_active) return false
+      return !q || [s.name, s.id, s.domain].some(v => (v || '').toLowerCase().includes(q))
+    })
+  }, [sites, query, status])
+
+  // ─── Form ──────────────────────────────────────────────────────────────────
   const openCreate = () => {
     setEditSite(null); setPmode('manual')
-    setForm({ id: '', name: '', domain: '', site_type: '', template: 'nganh', placements: JSON.stringify(TEMPLATES['nganh'], null, 2) })
-    setRows(placementsToRows(TEMPLATES['nganh']))
-    setShowForm(true)
+    setForm({ id: '', name: '', domain: '', site_type: '', template: 'nganh', placements: JSON.stringify(TEMPLATES.nganh, null, 2) })
+    setRows(placementsToRows(TEMPLATES.nganh))
+    setFormOpen(true)
   }
   const openEdit = (s: Site) => {
     setEditSite(s); setPmode('manual')
-    setForm({ id: s.id, name: s.name, domain: (s as any).domain || '', site_type: (s as any).site_type || '', template: '', placements: JSON.stringify(s.placements, null, 2) })
+    setForm({ id: s.id, name: s.name, domain: s.domain || '', site_type: s.site_type || '', template: '', placements: JSON.stringify(s.placements, null, 2) })
     setRows(placementsToRows(s.placements as any))
-    setShowForm(true)
+    setFormOpen(true)
   }
   const setTemplate = (t: string) => {
     setForm(f => ({ ...f, template: t, placements: JSON.stringify(TEMPLATES[t] || {}, null, 2) }))
     setRows(placementsToRows(TEMPLATES[t] || {}))
   }
-
-  // Chuyển tab: đồng bộ dữ liệu giữa builder ↔ JSON
   const switchMode = (m: 'manual' | 'json') => {
     if (m === pmode) return
     if (m === 'json') {
       setForm(f => ({ ...f, placements: JSON.stringify(rowsToPlacements(rows), null, 2) }))
     } else {
       try { setRows(placementsToRows(JSON.parse(form.placements))) }
-      catch { toast('JSON hiện không hợp lệ — không thể chuyển sang thủ công.', 'error'); return }
+      catch { notifications.show({ color: 'red', message: 'JSON hiện không hợp lệ, không thể chuyển sang thủ công.' }); return }
     }
     setPmode(m)
   }
-
-  const addRow = () => setRows(r => [...r, { key: '', label: '', limit: 1, default_mode: 'fixed' }])
   const updateRow = (i: number, patch: Partial<PRow>) => setRows(r => r.map((row, idx) => idx === i ? { ...row, ...patch } : row))
-  const removeRow = (i: number) => setRows(r => r.filter((_, idx) => idx !== i))
 
   const submit = async () => {
+    if (!editSite && !form.id.trim()) return notifications.show({ color: 'red', message: 'ID (slug) là bắt buộc.' })
+    if (!form.name.trim()) return notifications.show({ color: 'red', message: 'Tên site là bắt buộc.' })
+
     let placements: Record<string, any>
     if (pmode === 'manual') {
       placements = rowsToPlacements(rows)
-      if (Object.keys(placements).length === 0) { toast('Cần ít nhất 1 placement.', 'error'); return }
+      if (!Object.keys(placements).length) return notifications.show({ color: 'red', message: 'Cần ít nhất 1 placement.' })
     } else {
       try { placements = JSON.parse(form.placements) }
-      catch { toast('Placements JSON không hợp lệ', 'error'); return }
+      catch { return notifications.show({ color: 'red', message: 'Placements JSON không hợp lệ.' }) }
     }
-    setLoading(true)
+
+    const base = { name: form.name, domain: form.domain, site_type: form.site_type, placements }
+    setSaving(true)
     try {
-      const res = editSite
-        ? await siteApi.update(editSite.id, { name: form.name, domain: form.domain, site_type: form.site_type, placements })
-        : await siteApi.create({ id: form.id, name: form.name, domain: form.domain, site_type: form.site_type, placements })
-      if (res.success) { setShowForm(false); load() } else toast(res.message || 'Lỗi!', 'error')
-    } finally { setLoading(false) }
+      let res = editSite ? await siteApi.update(editSite.id, base) : await siteApi.create({ id: form.id, ...base })
+      // Giảm limit làm mất slot đang có banner → hỏi xác nhận rồi gửi lại với force
+      if (!res.success && (res as any).conflicts?.length && editSite) {
+        const ok = await new Promise<boolean>(resolve => modals.openConfirmModal({
+          title: 'Xóa slot đang có banner?',
+          children: <Text size="sm">{res.message} Các slot vượt limit mới sẽ bị xóa cùng banner đã gán.</Text>,
+          labels: { confirm: 'Xóa slot', cancel: 'Hủy' }, confirmProps: { color: 'red' },
+          onConfirm: () => resolve(true), onCancel: () => resolve(false), onClose: () => resolve(false),
+        }))
+        if (ok) res = await siteApi.update(editSite.id, { ...base, force: true })
+        else return
+      }
+      if (res.success) {
+        setFormOpen(false); load()
+        notifications.show({ color: 'green', message: editSite ? 'Đã cập nhật site.' : 'Đã tạo site.' })
+      } else notifications.show({ color: 'red', message: res.message || 'Lỗi!' })
+    } finally { setSaving(false) }
   }
 
-  const remove = async (id: string) => {
-    if (!confirm('Xóa site này? Toàn bộ slots sẽ bị xóa.')) return
-    await siteApi.delete(id); load()
+  const toggleActive = async (s: Site) => {
+    setSites(list => (list || []).map(x => x.id === s.id ? { ...x, is_active: !x.is_active } : x))
+    const res = await siteApi.update(s.id, { is_active: !s.is_active })
+    if (!res.success) notifications.show({ color: 'red', message: res.message || 'Cập nhật thất bại' })
+    load()
   }
+
+  const remove = (s: Site) => modals.openConfirmModal({
+    title: `Xóa site "${s.name}"?`,
+    children: <Text size="sm">Toàn bộ slots của site này sẽ bị xóa. Hành động không thể hoàn tác.</Text>,
+    labels: { confirm: 'Xóa site', cancel: 'Hủy' }, confirmProps: { color: 'red' },
+    onConfirm: async () => {
+      const res = await siteApi.delete(s.id)
+      if (res.success) { notifications.show({ color: 'green', message: 'Đã xóa site.' }); load() }
+      else notifications.show({ color: 'red', message: res.message || 'Xóa thất bại' })
+    },
+  })
 
   const handleBulkImport = async () => {
     let arr: any[]
-    try {
-      arr = JSON.parse(bulkJson)
-      if (!Array.isArray(arr)) throw new Error('Phải là mảng JSON')
-    } catch (e: any) {
-      toast('JSON không hợp lệ: ' + e.message, 'error'); return
-    }
+    try { arr = JSON.parse(bulkJson); if (!Array.isArray(arr)) throw new Error('Phải là mảng JSON') }
+    catch (e: any) { return notifications.show({ color: 'red', message: 'JSON không hợp lệ: ' + e.message }) }
     setBulking(true)
     try {
       const res = await fetch(`${getBaseUrl()}/api/sites/bulk`, {
         method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ sites: arr }),
       }).then(r => r.json())
       if (res.success) {
-        toast(res.message || 'Đã import!')
-        setShowBulk(false); setBulkJson(''); load()
-      } else toast(res.message || 'Lỗi import!', 'error')
+        notifications.show({ color: 'green', message: res.message || 'Đã import!' })
+        setBulkOpen(false); setBulkJson(''); load()
+      } else notifications.show({ color: 'red', message: res.message || 'Lỗi import!' })
     } catch (e: any) {
-      toast(e.message || 'Lỗi import!', 'error')
-    } finally {
-      setBulking(false)
-    }
+      notifications.show({ color: 'red', message: e.message || 'Lỗi import!' })
+    } finally { setBulking(false) }
   }
 
+  // ─── Render ────────────────────────────────────────────────────────────────
+  const actions = (
+    <>
+      <Button variant="default" leftSection={<Upload size={16} />} onClick={() => setBulkOpen(true)}>Import JSON</Button>
+      <Button leftSection={<Plus size={16} />} onClick={openCreate}>Thêm site</Button>
+    </>
+  )
+
   return (
-    <div>
-      <Header title="Sites" actions={
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <ViewToggle value={view} onChange={setView} />
-          <button className="btn btn-secondary" onClick={() => setShowBulk(true)}><Upload size={14} /> Import JSON</button>
-          <button className="btn btn-primary" onClick={openCreate}><Plus size={14} /> Thêm site</button>
-        </div>
-      } />
-      <div style={{ padding: '20px 24px' }} className="fade-in">
-        {sites.length === 0 ? (
-          <div className="empty">
-            <div className="empty-icon"><Globe size={20} /></div>
-            <div style={{ fontSize: '14px', fontWeight: 550, color: 'var(--text-secondary)' }}>Chưa có site nào</div>
-            <div style={{ marginTop: '4px' }}>Tạo site đầu tiên để bắt đầu cấu hình banner.</div>
-          </div>
-        ) : view === 'table' ? (
-          <div className="card" style={{ overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-              <thead>
-                <tr style={{ background: 'var(--bg-subtle)', color: 'var(--text-muted)', textAlign: 'left' }}>
-                  <th style={{ padding: '9px 14px', fontWeight: 500 }}>Tên</th>
-                  <th style={{ padding: '9px 14px', fontWeight: 500 }}>ID</th>
-                  <th style={{ padding: '9px 14px', fontWeight: 500 }}>Domain</th>
-                  <th style={{ padding: '9px 14px', fontWeight: 500 }}>Placements</th>
-                  <th style={{ padding: '9px 14px', fontWeight: 500 }}>Trạng thái</th>
-                  <th style={{ padding: '9px 14px', fontWeight: 500, width: '90px' }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {sites.map(site => (
-                  <tr key={site.id} style={{ borderTop: '1px solid var(--border)' }}>
-                    <td style={{ padding: '8px 14px', fontWeight: 600 }}>{site.name}</td>
-                    <td style={{ padding: '8px 14px' }} className="mono">{site.id}</td>
-                    <td style={{ padding: '8px 14px' }} className="mono">{(site as any).domain || <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
-                    <td style={{ padding: '8px 14px' }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                        {Object.entries(site.placements || {}).map(([p, cfg]) => {
-                          const c = PLACEMENT_COLORS[p] || '#71717A'
-                          return <span key={p} className="chip" style={{ background: c + '14', color: c }}>{cfg.label} · {cfg.limit}</span>
-                        })}
-                      </div>
-                    </td>
-                    <td style={{ padding: '8px 14px' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}><span className={`dot ${site.is_active ? 'dot-active' : 'dot-off'}`} /> {site.is_active ? 'Bật' : 'Tắt'}</span>
-                    </td>
-                    <td style={{ padding: '8px 14px' }}>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <button className="btn btn-ghost btn-sm" onClick={() => openEdit(site)} style={{ padding: '5px' }} title="Sửa"><Pencil size={13} /></button>
-                        <button className="btn btn-ghost btn-sm" onClick={() => remove(site.id)} style={{ padding: '5px', color: 'var(--danger)' }} title="Xóa"><Trash2 size={13} /></button>
-                      </div>
-                    </td>
-                  </tr>
+    <Page title="Sites" description="Các website WordPress nhận banner và cấu hình placement của từng site." actions={actions}>
+      <StatGrid>
+        <StatCard label="Tổng số site" value={stats.total} icon={Globe} loading={sites === null} hint="Website WordPress đã đăng ký" />
+        <StatCard label="Đang bật" value={stats.on} of={stats.total} icon={Power} color="green" loading={sites === null} hint="Đang nhận banner" />
+        <StatCard label="Đã tắt" value={stats.off} of={stats.total} icon={PowerOff} color="gray" loading={sites === null} hint="Tạm ngưng hiển thị" />
+      </StatGrid>
+
+      <Group justify="space-between" wrap="wrap">
+        <Group wrap="wrap">
+          <SearchInput placeholder="Tìm theo tên, ID, domain"
+            value={query} onChange={e => setQuery(e.currentTarget.value)} />
+          <SegmentedControl value={status} onChange={v => setStatus(v as any)}
+            data={[{ value: 'all', label: 'Tất cả' }, { value: 'on', label: 'Đang bật' }, { value: 'off', label: 'Đã tắt' }]} />
+        </Group>
+        <ViewToggle value={view} onChange={setView} />
+      </Group>
+
+      {sites === null ? (
+        <Stack>{[0, 1, 2, 3].map(i => <Skeleton key={i} h={52} />)}</Stack>
+      ) : filtered.length === 0 ? (
+        <EmptyState icon={Globe}
+          title={sites.length === 0 ? 'Chưa có site nào' : 'Không có site khớp bộ lọc'}
+          description={sites.length === 0 ? 'Tạo site đầu tiên để bắt đầu cấu hình banner.' : 'Thử đổi từ khóa hoặc trạng thái.'}
+          action={sites.length === 0 ? <Button mt="sm" leftSection={<Plus size={16} />} onClick={openCreate}>Thêm site</Button> : undefined} />
+      ) : view === 'table' ? (
+        <Paper>
+          <Table.ScrollContainer minWidth={820}>
+            <Table>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Site</Table.Th><Table.Th>Domain</Table.Th><Table.Th>Placements</Table.Th>
+                  <Table.Th w={110}>Trạng thái</Table.Th><Table.Th w={96} />
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {filtered.map(s => (
+                  <Table.Tr key={s.id}>
+                    <Table.Td>
+                      <Text fw={600}>{s.name}</Text>
+                      <Text size="xs" c="dimmed" ff="monospace">{s.id}</Text>
+                    </Table.Td>
+                    <Table.Td>{s.domain ? <Code>{s.domain}</Code> : <Text c="dimmed">—</Text>}</Table.Td>
+                    <Table.Td><PlacementBadges site={s} /></Table.Td>
+                    <Table.Td>
+                      <StatusSwitch checked={!!s.is_active} onChange={() => toggleActive(s)} aria-label={`Bật/tắt ${s.name}`} />
+                    </Table.Td>
+                    <Table.Td>
+                      <Group gap={4} justify="flex-end" wrap="nowrap">
+                        <Tooltip label="Sửa site"><ActionIcon variant="subtle" color="gray" onClick={() => openEdit(s)} aria-label="Sửa site"><Pencil size={16} /></ActionIcon></Tooltip>
+                        <Tooltip label="Xóa site"><ActionIcon variant="subtle" color="red" onClick={() => remove(s)} aria-label="Xóa site"><Trash2 size={16} /></ActionIcon></Tooltip>
+                      </Group>
+                    </Table.Td>
+                  </Table.Tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
-            {sites.map(site => (
-              <div key={site.id} className="card">
-                <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span className={`dot ${site.is_active ? 'dot-active' : 'dot-off'}`} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: '13.5px' }}>{site.name}</div>
-                    <div className="mono" style={{ color: 'var(--text-muted)' }}>{site.id}</div>
-                  </div>
-                  <button className="btn btn-ghost btn-sm" onClick={() => openEdit(site)} style={{ padding: '5px' }}><Pencil size={13} /></button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => remove(site.id)} style={{ padding: '5px', color: 'var(--danger)' }}><Trash2 size={13} /></button>
-                </div>
-                <div style={{ padding: '10px 14px', display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                  {Object.entries(site.placements || {}).map(([p, cfg]) => {
-                    const c = PLACEMENT_COLORS[p] || '#71717A'
-                    return (
-                      <span key={p} className="chip" style={{ background: c + '14', color: c }}>
-                        {cfg.label} · {cfg.limit}
-                      </span>
-                    )
-                  })}
-                </div>
-                {(site as any).domain && (
-                  <div style={{ padding: '0 14px 12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: 'var(--text-muted)' }}>
-                    <ImageIcon size={12} /> <span className="mono">{(site as any).domain}</span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {showForm && (
-        <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <div className="modal" style={{ width: '560px', maxHeight: '90vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">{editSite ? `Sửa site` : 'Thêm site mới'}<button className="btn btn-ghost btn-sm" onClick={() => setShowForm(false)}>✕</button></div>
-            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {!editSite && (
-                <div><label className="label">ID (slug)</label><input className="input mono" value={form.id} onChange={e => setForm(f => ({ ...f, id: e.target.value }))} placeholder="nganh-g" /></div>
-              )}
-              <div><label className="label">Tên site</label><input className="input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Ngành G" /></div>
-              <div><label className="label">Domain WordPress (tùy chọn)</label><input className="input mono" value={form.domain} onChange={e => setForm(f => ({ ...f, domain: e.target.value }))} placeholder="nganh-g.com" /></div>
-              <div><label className="label">Site Type (tùy chọn)</label><input className="input mono" value={form.site_type} onChange={e => setForm(f => ({ ...f, site_type: e.target.value }))} placeholder="nganh-g" /></div>
-
-              {!editSite && (
-                <div>
-                  <label className="label">Template nhanh</label>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    {Object.keys(TEMPLATES).map(t => (
-                      <button key={t} onClick={() => setTemplate(t)} className={form.template === t ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'} style={{ textTransform: 'capitalize' }}>{t}</button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Chế độ điền placements: Thủ công ↔ JSON */}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <label className="label" style={{ margin: 0 }}>Placements</label>
-                  <div style={{ display: 'inline-flex', gap: '2px', background: 'var(--bg-subtle)', padding: '3px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-                    {(['manual', 'json'] as const).map(m => (
-                      <button key={m} type="button" onClick={() => switchMode(m)}
-                        style={{ height: '24px', padding: '0 12px', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '12px',
-                          fontWeight: pmode === m ? 550 : 450, background: pmode === m ? 'var(--bg)' : 'transparent',
-                          color: pmode === m ? 'var(--accent)' : 'var(--text-secondary)', boxShadow: pmode === m ? 'var(--shadow-sm)' : 'none' }}>
-                        {m === 'manual' ? 'Thủ công' : 'JSON'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {pmode === 'manual' ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {/* Header cột */}
-                    {rows.length > 0 && (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 64px 104px 30px', gap: '6px', fontSize: '11px', color: 'var(--text-muted)', padding: '0 2px' }}>
-                        <span>Key</span><span>Nhãn</span><span>Limit</span><span>Chế độ</span><span></span>
-                      </div>
-                    )}
-                    {rows.map((row, i) => {
-                      const c = PLACEMENT_COLORS[row.key] || '#71717A'
-                      return (
-                        <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 64px 104px 30px', gap: '6px', alignItems: 'center' }}>
-                          <input className="input mono" style={{ height: '32px', borderLeft: `3px solid ${c}` }} value={row.key} onChange={e => updateRow(i, { key: e.target.value })} placeholder="catfish" />
-                          <input className="input" style={{ height: '32px' }} value={row.label} onChange={e => updateRow(i, { label: e.target.value })} placeholder="Catfish" />
-                          <input className="input" style={{ height: '32px' }} type="number" min={0} value={row.limit} onChange={e => updateRow(i, { limit: +e.target.value })} />
-                          <Select value={row.default_mode} onChange={v => updateRow(i, { default_mode: v })} options={MODE_OPTS} size="sm" minWidth={104} />
-                          <button className="btn btn-ghost btn-sm" onClick={() => removeRow(i)} style={{ padding: '4px', color: 'var(--danger)' }} title="Xóa dòng"><Trash2 size={13} /></button>
-                        </div>
-                      )
-                    })}
-                    <button className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={addRow}><Plus size={13} /> Thêm placement</button>
-                  </div>
-                ) : (
-                  <textarea className="input mono" style={{ height: '210px', resize: 'vertical' }} value={form.placements} onChange={e => setForm(f => ({ ...f, placements: e.target.value }))} />
-                )}
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Hủy</button>
-              <button className="btn btn-primary" onClick={submit} disabled={loading}>{loading ? 'Đang lưu...' : editSite ? 'Cập nhật' : 'Tạo site'}</button>
-            </div>
-          </div>
-        </div>
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
+        </Paper>
+      ) : (
+        <CardGrid>
+          {filtered.map(s => (
+            <EntityCard key={s.id} dimmed={!s.is_active}
+              leading={<ThemeIcon size={34} variant="light" radius="md"><Globe size={17} strokeWidth={1.8} /></ThemeIcon>}
+              title={s.name} subtitle={s.id}
+              status={<StatusSwitch checked={!!s.is_active} onChange={() => toggleActive(s)} aria-label={`Bật/tắt ${s.name}`} />}
+              footer={<>
+                {s.domain ? <Code>{s.domain}</Code> : <Text size="sm" c="dimmed">Chưa gắn domain</Text>}
+                <Group gap={4} wrap="nowrap">
+                  <Tooltip label="Sửa site"><ActionIcon variant="subtle" color="gray" onClick={() => openEdit(s)} aria-label="Sửa site"><Pencil size={16} /></ActionIcon></Tooltip>
+                  <Tooltip label="Xóa site"><ActionIcon variant="subtle" color="red" onClick={() => remove(s)} aria-label="Xóa site"><Trash2 size={16} /></ActionIcon></Tooltip>
+                </Group>
+              </>}>
+              <Stack gap={6}>
+                <Text size="xs" c="dimmed" fw={600} tt="uppercase">Placements</Text>
+                <PlacementBadges site={s} />
+              </Stack>
+            </EntityCard>
+          ))}
+        </CardGrid>
       )}
 
-      {showBulk && (
-        <div className="modal-overlay" onClick={() => setShowBulk(false)}>
-          <div className="modal" style={{ width: '560px', maxHeight: '90vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">Import sites (JSON)<button className="btn btn-ghost btn-sm" onClick={() => setShowBulk(false)}>✕</button></div>
-            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                Dán mảng JSON. Mỗi object cần <span className="mono">id</span>, <span className="mono">name</span>, <span className="mono">placements</span>; tùy chọn <span className="mono">domain</span>, <span className="mono">sort_order</span>. Site đã tồn tại sẽ được bỏ qua.
-              </div>
-              <button className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setBulkJson(BULK_SAMPLE)}>Chèn ví dụ mẫu</button>
-              <div>
-                <label className="label">Sites (JSON)</label>
-                <textarea
-                  className="input mono"
-                  style={{ height: '280px', resize: 'vertical' }}
-                  value={bulkJson}
-                  onChange={e => setBulkJson(e.target.value)}
-                  placeholder='[{"id":"nganh-g","name":"Ngành G","placements":{"button":{"label":"Nút bấm","limit":2,"default_mode":"fixed"}}}]'
-                />
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowBulk(false)}>Hủy</button>
-              <button className="btn btn-primary" onClick={handleBulkImport} disabled={bulking}>{bulking ? 'Đang import...' : 'Import'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      {/* Thêm / sửa site */}
+      <Modal opened={formOpen} onClose={() => setFormOpen(false)} size="xl" title={editSite ? `Sửa site: ${editSite.name}` : 'Thêm site mới'}
+        scrollAreaComponent={ScrollArea.Autosize}>
+        <Stack>
+          <Grid>
+            {!editSite && (
+              <Grid.Col span={{ base: 12, sm: 6 }}>
+                <TextInput label="ID (slug)" required value={form.id} placeholder="nganh-g" styles={MONO}
+                  onChange={e => setForm(f => ({ ...f, id: e.currentTarget.value }))} />
+              </Grid.Col>
+            )}
+            <Grid.Col span={{ base: 12, sm: editSite ? 12 : 6 }}>
+              <TextInput label="Tên site" required value={form.name} placeholder="Ngành G"
+                onChange={e => setForm(f => ({ ...f, name: e.currentTarget.value }))} />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, sm: 6 }}>
+              <TextInput label="Domain WordPress" description="Tùy chọn, dùng để tự nhận diện site" value={form.domain} placeholder="nganh-g.com" styles={MONO}
+                onChange={e => setForm(f => ({ ...f, domain: e.currentTarget.value }))} />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, sm: 6 }}>
+              <TextInput label="Site type" description="Tùy chọn" value={form.site_type} placeholder="nganh-g" styles={MONO}
+                onChange={e => setForm(f => ({ ...f, site_type: e.currentTarget.value }))} />
+            </Grid.Col>
+          </Grid>
+
+          {!editSite && (
+            <Stack gap={6}>
+              <Text size="sm" fw={500}>Template nhanh</Text>
+              <Chip.Group multiple={false} value={form.template} onChange={v => v && setTemplate(v as string)}>
+                <Group gap="xs">{Object.keys(TEMPLATES).map(t => <Chip key={t} value={t} tt="capitalize">{t}</Chip>)}</Group>
+              </Chip.Group>
+            </Stack>
+          )}
+
+          <Stack gap="xs">
+            <Group justify="space-between">
+              <Text size="sm" fw={500}>Placements</Text>
+              <SegmentedControl value={pmode} onChange={v => switchMode(v as any)}
+                data={[{ value: 'manual', label: 'Thủ công' }, { value: 'json', label: 'JSON' }]} />
+            </Group>
+
+            {pmode === 'manual' ? (
+              <Stack gap="xs">
+                {rows.map((row, i) => (
+                  <Grid key={i} align="flex-end" gap="xs">
+                    <Grid.Col span={{ base: 6, sm: 3 }}>
+                      <TextInput label={i === 0 ? 'Key' : undefined} value={row.key} placeholder="catfish" styles={MONO}
+                        onChange={e => updateRow(i, { key: e.currentTarget.value })} />
+                    </Grid.Col>
+                    <Grid.Col span={{ base: 6, sm: 3 }}>
+                      <TextInput label={i === 0 ? 'Nhãn' : undefined} value={row.label} placeholder="Catfish"
+                        onChange={e => updateRow(i, { label: e.currentTarget.value })} />
+                    </Grid.Col>
+                    <Grid.Col span={{ base: 4, sm: 2 }}>
+                      <NumberInput label={i === 0 ? 'Limit' : undefined} min={0} value={row.limit} allowNegative={false}
+                        onChange={v => updateRow(i, { limit: Number(v) || 0 })} />
+                    </Grid.Col>
+                    <Grid.Col span={{ base: 6, sm: 3 }}>
+                      <Select label={i === 0 ? 'Chế độ' : undefined} data={MODE_OPTS} value={row.default_mode} allowDeselect={false}
+                        onChange={v => updateRow(i, { default_mode: v || 'fixed' })} />
+                    </Grid.Col>
+                    <Grid.Col span={{ base: 2, sm: 1 }}>
+                      <Tooltip label="Xóa dòng"><ActionIcon variant="subtle" color="red" size="input-md" aria-label="Xóa dòng"
+                        onClick={() => setRows(r => r.filter((_, idx) => idx !== i))}><Trash2 size={16} /></ActionIcon></Tooltip>
+                    </Grid.Col>
+                  </Grid>
+                ))}
+                <Button variant="light" leftSection={<Plus size={16} />} style={{ alignSelf: 'flex-start' }}
+                  onClick={() => setRows(r => [...r, { key: '', label: '', limit: 1, default_mode: 'fixed' }])}>Thêm placement</Button>
+              </Stack>
+            ) : (
+              <Textarea autosize minRows={8} maxRows={16} styles={MONO} value={form.placements}
+                onChange={e => setForm(f => ({ ...f, placements: e.currentTarget.value }))} />
+            )}
+          </Stack>
+
+          <Group justify="flex-end" mt="xs">
+            <Button variant="default" onClick={() => setFormOpen(false)}>Hủy</Button>
+            <Button onClick={submit} loading={saving}>{editSite ? 'Cập nhật' : 'Tạo site'}</Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      {/* Import JSON */}
+      <Modal opened={bulkOpen} onClose={() => setBulkOpen(false)} size="lg" title="Import sites (JSON)">
+        <Stack>
+          <Text size="sm" c="dimmed">
+            Dán mảng JSON. Mỗi object cần <Code>id</Code>, <Code>name</Code>, <Code>placements</Code>; tùy chọn <Code>domain</Code>, <Code>sort_order</Code>. Site đã tồn tại sẽ được bỏ qua.
+          </Text>
+          <Button variant="light" style={{ alignSelf: 'flex-start' }} onClick={() => setBulkJson(BULK_SAMPLE)}>Chèn ví dụ mẫu</Button>
+          <Textarea label="Sites (JSON)" autosize minRows={10} maxRows={18} styles={MONO} value={bulkJson}
+            onChange={e => setBulkJson(e.currentTarget.value)}
+            placeholder='[{"id":"nganh-g","name":"Ngành G","placements":{"button":{"label":"Nút bấm","limit":2,"default_mode":"fixed"}}}]' />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setBulkOpen(false)}>Hủy</Button>
+            <Button onClick={handleBulkImport} loading={bulking}>Import</Button>
+          </Group>
+        </Stack>
+      </Modal>
+    </Page>
   )
 }

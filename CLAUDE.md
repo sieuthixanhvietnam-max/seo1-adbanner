@@ -30,33 +30,38 @@ seo1-adbanner/
 │           ├── storage.js        # R2 + local fallback
 │           └── defaultStyles.js  # Style mặc định mỗi placement
 │
-├── admin/                # Next.js 15 Admin Dashboard
+├── admin/                # Next.js 16 + Mantine v9 Admin Dashboard
 │   ├── package.json      # name: @seo1/admin
+│   ├── proxy.ts          # Chặn /admin/* khi chưa có cookie admin_token (Next 16: proxy thay middleware)
 │   ├── app/
-│   │   ├── globals.css   # Design system: CSS variables + utility classes
-│   │   ├── login/        # Trang đăng nhập
+│   │   ├── globals.css   # Chỉ nạp font Inter/JetBrains Mono
+│   │   ├── layout.tsx    # MantineProvider (components/Providers.tsx) + ColorSchemeScript
+│   │   ├── login/        # Trang đăng nhập (ngoài AppShell)
 │   │   └── admin/
-│   │       ├── layout.tsx      # Sidebar + CommandBar + Cmd+K
+│   │       ├── layout.tsx      # AppShell: Topbar + Navbar + Spotlight (Cmd+K)
 │   │       ├── sites/          # CRUD sites
 │   │       ├── slots/          # Slot Manager drag-drop
 │   │       ├── toplist/        # Toplist drag-drop
-│   │       ├── appearance/     # Style config + live preview
-│   │       ├── brands/         # CRUD + bulk import JSON
+│   │       ├── brands/         # CRUD + bulk import JSON + lịch sử domain
 │   │       ├── banners/        # Banner pool upload
+│   │       ├── tracking/       # Tracking links (Google Sheet)
 │   │       ├── image-domains/  # Domain pool manager
+│   │       ├── api-clients/    # Quản lý API key cho /api/ext/v1
 │   │       └── recycle/        # Recycle bin
 │   ├── components/
-│   │   ├── Sidebar.tsx
-│   │   ├── Header.tsx
-│   │   ├── SiteSwitcher.tsx
-│   │   ├── CommandBar.tsx    # Cmd+K navigation
+│   │   ├── Providers.tsx       # Mantine + Modals + Notifications
+│   │   ├── PageHeader.tsx      # `Page`: khung chuẩn (tiêu đề, mô tả, actions)
+│   │   ├── SiteSwitcher.tsx    # Select chọn site
+│   │   ├── shell/              # Topbar, Navbar, AppSpotlight, ConnectionSettings, nav.ts
 │   │   └── ui/
-│   │       ├── StyleControls.tsx   # SliderControl, ColorControl, Toggle, Segment
-│   │       └── PlacementPreview.tsx # Live preview 6 placement types
+│   │       ├── StatusSwitch.tsx  # Switch bật/tắt: icon trên núm + tooltip
+│   │       └── ImageFrame.tsx    # Khung ảnh nền ca-rô, guard khi thiếu URL
 │   └── lib/
-│       ├── api.ts        # siteApi, brandApi, bannerApi, slotApi, toplistApi...
-│       ├── types.ts      # TypeScript interfaces + PLACEMENT_COLORS/ICONS
-│       └── icons.tsx     # PlacementIcon component
+│       ├── theme.ts        # Theme Mantine: xanh dương, size sm, radius md
+│       ├── useViewMode.ts  # Nhớ chế độ Bảng/Thẻ theo trang
+│       ├── api.ts          # siteApi, brandApi, bannerApi, slotApi, toplistApi, apiClientApi...
+│       ├── types.ts        # TypeScript interfaces + PLACEMENT_COLORS/ICONS
+│       └── icons.tsx       # PlacementIcon component
 │
 └── plugin/               # WordPress Plugin (cần implement)
     └── package.json
@@ -185,37 +190,42 @@ PUT  /api/toplist/reorder
 CRUD /api/image-domains
 POST /api/image-domains/generate
 POST /api/cache/clear
+CRUD /api/api-clients          # quản lý API key nội bộ
 ```
+
+### Ext API nội bộ (Bearer API key, chỉ đọc, cache: no-store)
+```
+GET /api/ext/v1/health
+GET /api/ext/v1/sites
+GET /api/ext/v1/sites/:id/banners   # cùng shape với /api/v2/site/:id/banners
+GET /api/ext/v1/brands
+GET /api/ext/v1/toplist?site=:id
+```
+Key dạng `sk1_...`, tạo ở admin/api-clients (chỉ hiện 1 lần, DB chỉ lưu SHA-256). Giới hạn 300 req/phút/key.
 
 ---
 
-## Design System (admin/app/globals.css)
+## Design System (Mantine v9)
 
-**KHÔNG dùng Tailwind. KHÔNG dùng emoji.**
+**KHÔNG dùng Tailwind. KHÔNG dùng emoji.** Giao diện dùng Mantine; cấu hình ở `admin/lib/theme.ts`.
 
-CSS classes tái sử dụng:
-```
-.btn .btn-primary .btn-secondary .btn-ghost .btn-danger .btn-sm
-.input
-.card
-.label
-.dot .dot-active .dot-off .dot-warn
-.chip
-.modal-overlay .modal .modal-header .modal-body .modal-footer
-.empty .empty-icon
-.mono
-.fade-in
-```
+- Màu chủ đạo `brand` = xanh dương `#2563EB` (shade 6). Mọi control mặc định `size="sm"`, `defaultRadius: 'md'`, Badge/Pill radius `md`. Không truyền `size`/`radius` từng chỗ trừ khi có lý do.
+- Có giao diện sáng/tối (nút ở Topbar). Chỉ dùng prop Mantine hoặc biến `var(--mantine-*)`, KHÔNG hard-code màu nền/chữ.
+- Trang admin nào cũng bọc bằng `<Page title description actions>` từ `components/PageHeader.tsx`.
+- Thông báo: `notifications.show({ color, message })` (`@mantine/notifications`). Xác nhận: `modals.openConfirmModal` (không dùng `window.confirm`). Form/popup: `Modal`.
+- Bảng: `Table` trong `Table.ScrollContainer`. Loading: `Skeleton`. Empty state: `ThemeIcon` + `Text` trong `Paper`.
+- Công tắc bật/tắt: `StatusSwitch`. Ảnh: `ImageFrame`.
+- Next 16 + React 19.2 là bắt buộc để dùng Mantine v9. `next lint` đã bị gỡ, dùng `eslint .`.
 
-CSS Variables:
-```
---accent: #6366F1 (indigo)
---bg, --bg-subtle, --bg-hover
---border, --border-strong
---text, --text-secondary, --text-muted
---sidebar-w: 208px, --topbar-h: 52px
---font-sans: Inter, --font-mono: JetBrains Mono
-```
+---
+
+## Xác thực admin
+
+- Mật khẩu admin lưu **băm bcrypt trong DB** (`admin_auth`), `ADMIN_PASSWORD` trong `.env` chỉ dùng khởi tạo lần đầu. Đổi mật khẩu ở menu tài khoản (Topbar). Quên mật khẩu: `cd backend && node scripts/reset-admin-password.js`.
+- Chính sách mật khẩu (backend `utils/adminAuth.js`, frontend `lib/passwordPolicy.ts`, phải giữ đồng bộ): tối thiểu 12 ký tự, có chữ hoa, chữ thường, số, ký tự đặc biệt, không chứa từ thông dụng, không lặp ký tự quá 3 lần.
+- Đăng nhập: sai 5 lần/IP thì khóa 15 phút (trả 429 kèm `retry_after`), có làm chậm dần khi bị dò từ nhiều IP, mọi lần thử ghi vào `login_attempts`.
+- Token phiên (`x-admin-token`) có `version`; hết hạn sau `SESSION_TTL_HOURS` (mặc định 12). Đổi mật khẩu tăng version, thu hồi mọi phiên cũ. Mật khẩu chưa đạt chính sách (vd mật khẩu khởi tạo từ `.env`) bị buộc đổi ở lần đăng nhập đầu.
+- API: `POST /auth/login`, `GET /auth/session`, `GET /auth/activity`, `POST /auth/change-password`.
 
 ---
 
@@ -223,7 +233,7 @@ CSS Variables:
 
 1. **Image guard** — `{url ? <img src={url}/> : <FallbackIcon/>}` — KHÔNG `<img src={url||''}>`
 2. **Icon** — Lucide React, strokeWidth 1.6-2, KHÔNG emoji
-3. **Empty state** — class `.empty` + `.empty-icon` với Lucide icon
+3. **Empty state** — `ThemeIcon` + `Text` trong `Paper` (xem trang Sites)
 4. **PlacementIcon** — `<PlacementIcon name={PLACEMENT_ICONS[p]}/>` từ `lib/icons.tsx`
 5. **Click URL** — plugin resolve: `banner.click_url || brandUrls[banner.brand_id]`
 6. **CORS** — Express 5 wildcard: `app.options(/.*/, cors())` không phải `'*'`

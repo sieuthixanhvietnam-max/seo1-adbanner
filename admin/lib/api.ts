@@ -27,8 +27,24 @@ const jsonHeaders = () => ({ 'Content-Type': 'application/json', 'x-admin-token'
 
 type ApiRes<T = any> = { success: boolean; data?: T; message?: string; [key: string]: any }
 
+/** Lưu token phiên vào cookie, hết hạn đúng lúc token hết hạn ở server. */
+export function setSessionCookie(token: string, expiresAt: number) {
+  const secure = location.protocol === 'https:' ? '; Secure; SameSite=Strict' : '; SameSite=Lax'
+  document.cookie = `admin_token=${encodeURIComponent(token)}; expires=${new Date(expiresAt).toUTCString()}; path=/${secure}`
+}
+
+export function clearSessionCookie() {
+  document.cookie = 'admin_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/'
+}
+
 async function request<T = any>(path: string, options: RequestInit = {}): Promise<ApiRes<T>> {
   const res = await fetch(`${getBaseUrl()}${path}`, options)
+  // Phiên hết hạn hoặc bị thu hồi (đổi mật khẩu ở nơi khác): xóa token, về trang đăng nhập
+  if (res.status === 401 && typeof window !== 'undefined' && !path.startsWith('/auth/login') && !path.startsWith('/auth/change-password')) {
+    clearSessionCookie()
+    window.location.href = '/login?expired=1'
+    return { success: false, message: 'Phiên đăng nhập đã hết hạn.' }
+  }
   const contentType = res.headers.get('content-type') || ''
   if (!contentType.includes('application/json')) {
     const text = await res.text()
@@ -92,6 +108,20 @@ export const imageDomainApi = {
   generate: (count: number) => request('/api/image-domains/generate', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ count }) }),
   update: (id: string, data: Record<string, any>) => request(`/api/image-domains/${id}`, { method: 'PUT', headers: jsonHeaders(), body: JSON.stringify(data) }),
   delete: (id: string) => request(`/api/image-domains/${id}`, { method: 'DELETE', headers: jsonHeaders() }),
+}
+
+export const apiClientApi = {
+  getAll: () => request('/api/api-clients', { headers: authHeaders() }),
+  create: (name: string) => request('/api/api-clients', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ name }) }),
+  update: (id: string, data: Record<string, any>) => request(`/api/api-clients/${id}`, { method: 'PUT', headers: jsonHeaders(), body: JSON.stringify(data) }),
+  delete: (id: string) => request(`/api/api-clients/${id}`, { method: 'DELETE', headers: jsonHeaders() }),
+}
+
+export const authApi = {
+  session: () => request('/auth/session', { headers: authHeaders() }),
+  activity: () => request('/auth/activity', { headers: authHeaders() }),
+  changePassword: (current_password: string, new_password: string) =>
+    request('/auth/change-password', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ current_password, new_password }) }),
 }
 
 export const cacheApi = {

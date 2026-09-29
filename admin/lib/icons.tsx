@@ -1,9 +1,9 @@
 import {
-  Fish, MousePointerClick, MessageSquare, GalleryHorizontalEnd, Tag, Layers,
+  PanelBottom, SquareMousePointer, Images, AppWindow, Tag, Layers,
 } from 'lucide-react'
 
 const map: Record<string, any> = {
-  Fish, MousePointerClick, MessageSquare, GalleryHorizontalEnd, Tag,
+  PanelBottom, SquareMousePointer, Images, AppWindow, Tag,
 }
 
 export function PlacementIcon({ name, size = 15, color }: { name: string; size?: number; color?: string }) {

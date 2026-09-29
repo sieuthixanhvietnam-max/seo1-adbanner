@@ -1,153 +1,200 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { useToast } from '@/components/ToastProvider'
-import Header from '@/components/Header'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  ActionIcon, Alert, Badge, Button, Group, NumberInput, Paper, SegmentedControl,
+  Skeleton, Stack, Table, Text, ThemeIcon, Tooltip,
+} from '@mantine/core'
+import { modals } from '@mantine/modals'
+import { notifications } from '@mantine/notifications'
+import { AlertTriangle, Ban, CircleCheck, Globe, Link2, Trash2, Zap } from 'lucide-react'
+import Page from '@/components/PageHeader'
+import EntityCard from '@/components/ui/EntityCard'
+import StatCard from '@/components/ui/StatCard'
+import ViewToggle from '@/components/ui/ViewToggle'
+import SearchInput from '@/components/ui/SearchInput'
+import EmptyState from '@/components/ui/EmptyState'
+import { StatGrid, CardGrid } from '@/components/ui/Grids'
+import { fmtDate } from '@/lib/format'
 import { imageDomainApi } from '@/lib/api'
 import type { ImageDomain } from '@/lib/types'
-import { ViewToggle, useViewMode } from '@/components/ui/ViewToggle'
-import { Zap, AlertTriangle } from 'lucide-react'
+import { useViewMode } from '@/lib/useViewMode'
+
+type Filter = 'all' | 'free' | 'used' | 'blocked'
+
+const statusColor = (d: ImageDomain) => {
+  if (d.is_blocked) return 'red'
+  if (!d.is_active) return 'gray'
+  if (d.assigned_to) return 'green'
+  return 'yellow'
+}
+const statusLabel = (d: ImageDomain) => {
+  if (d.is_blocked) return 'Blocked'
+  if (!d.is_active) return 'Inactive'
+  if (d.assigned_to) return 'Used'
+  return 'Free'
+}
+const matchFilter = (d: ImageDomain, f: Filter) => {
+  if (f === 'all') return true
+  if (f === 'blocked') return d.is_blocked
+  if (f === 'used') return !d.is_blocked && !!d.assigned_to
+  return !d.is_blocked && d.is_active && !d.assigned_to
+}
 
 export default function ImageDomainsPage() {
-  const [domains, setDomains] = useState<ImageDomain[]>([])
+  const [domains, setDomains] = useState<ImageDomain[] | null>(null)
   const [stats, setStats] = useState<any>({})
-  const [generateCount, setGenerateCount] = useState(10)
-  const [loading, setLoading] = useState(false)
+  const [generateCount, setGenerateCount] = useState<number | string>(10)
+  const [generating, setGenerating] = useState(false)
   const [view, setView] = useViewMode('image-domains', 'table')
-  const { toast } = useToast()
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<Filter>('all')
 
   const load = () => imageDomainApi.getAll().then(r => {
     if (r.success) { setDomains(r.data || []); setStats(r.stats || {}) }
+    else { setDomains(d => d ?? []); notifications.show({ color: 'red', message: r.message || 'Không tải được domains' }) }
+  }).catch((e: any) => {
+    setDomains(d => d ?? [])
+    notifications.show({ color: 'red', message: e?.message || 'Không tải được domains' })
   })
   useEffect(() => { load() }, [])
 
   const handleGenerate = async () => {
-    setLoading(true)
-    const r = await imageDomainApi.generate(generateCount)
-    if (r.success) { toast(r.message || 'Đã tạo domains', 'success'); load() }
-    else toast(r.message || 'Tạo thất bại', 'error')
-    setLoading(false)
+    setGenerating(true)
+    try {
+      const r = await imageDomainApi.generate(Number(generateCount) || 1)
+      if (r.success) { notifications.show({ color: 'green', message: r.message || 'Đã tạo domains' }); load() }
+      else notifications.show({ color: 'red', message: r.message || 'Tạo thất bại' })
+    } catch (e: any) {
+      notifications.show({ color: 'red', message: e?.message || 'Tạo thất bại' })
+    } finally { setGenerating(false) }
   }
 
   const handleBlock = async (d: ImageDomain) => {
-    await imageDomainApi.update(d.id, { is_blocked: !d.is_blocked })
+    const r = await imageDomainApi.update(d.id, { is_blocked: !d.is_blocked })
+    if (!r.success) notifications.show({ color: 'red', message: r.message || 'Cập nhật thất bại' })
     load()
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Xóa domain này?')) return
-    await imageDomainApi.delete(id)
-    load()
-  }
+  const handleDelete = (d: ImageDomain) => modals.openConfirmModal({
+    title: 'Xóa domain này?',
+    children: <Text size="sm">Domain <Text span ff="monospace" fw={600}>{d.base_url}</Text> sẽ bị xóa khỏi pool.</Text>,
+    labels: { confirm: 'Xóa domain', cancel: 'Hủy' }, confirmProps: { color: 'red' },
+    onConfirm: async () => {
+      const r = await imageDomainApi.delete(d.id)
+      if (r.success) notifications.show({ color: 'green', message: 'Đã xóa domain.' })
+      else notifications.show({ color: 'red', message: r.message || 'Xóa thất bại' })
+      load()
+    },
+  })
 
-  const statusColor = (d: ImageDomain) => {
-    if (d.is_blocked) return '#EF4444'
-    if (!d.is_active) return '#94A3B8'
-    if (d.assigned_to) return '#10B981'
-    return '#F59E0B'
-  }
-  const statusLabel = (d: ImageDomain) => {
-    if (d.is_blocked) return 'Blocked'
-    if (!d.is_active) return 'Inactive'
-    if (d.assigned_to) return 'Used'
-    return 'Free'
-  }
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return (domains || []).filter(d =>
+      matchFilter(d, filter) && (!q || [d.base_url, d.site_name, d.assigned_to].some(v => (v || '').toLowerCase().includes(q))))
+  }, [domains, query, filter])
+
+  const available = stats.available || 0
+  const loading = domains === null
+
+  const RowActions = ({ d }: { d: ImageDomain }) => (
+    <Group gap={4} wrap="nowrap" justify="flex-end">
+      <Tooltip label={d.is_blocked ? 'Bỏ chặn domain' : 'Chặn domain'}>
+        <ActionIcon variant="subtle" color={d.is_blocked ? 'green' : 'red'} onClick={() => handleBlock(d)}
+          aria-label={d.is_blocked ? 'Bỏ chặn domain' : 'Chặn domain'}>
+          {d.is_blocked ? <CircleCheck size={16} /> : <Ban size={16} />}
+        </ActionIcon>
+      </Tooltip>
+      <Tooltip label="Xóa domain">
+        <ActionIcon variant="subtle" color="gray" onClick={() => handleDelete(d)} aria-label="Xóa domain"><Trash2 size={16} /></ActionIcon>
+      </Tooltip>
+    </Group>
+  )
+
+  const actions = (
+    <>
+      <NumberInput w={90} min={1} max={100} allowDecimal={false} aria-label="Số lượng domain" value={generateCount} onChange={setGenerateCount} />
+      <Button leftSection={<Zap size={16} />} onClick={handleGenerate} loading={generating}>Generate</Button>
+    </>
+  )
 
   return (
-    <div>
-      <Header title="Image Domains" actions={<ViewToggle value={view} onChange={setView} />} />
-      <div style={{ padding: '24px 28px' }}>
-        {/* Stats */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '24px' }}>
-          {[
-            { label: 'Total', value: stats.total || 0, color: '#2563EB' },
-            { label: 'Available', value: stats.available || 0, color: '#10B981' },
-            { label: 'Used', value: stats.used || 0, color: '#6366F1' },
-            { label: 'Blocked', value: stats.blocked || 0, color: '#EF4444' },
-          ].map(s => (
-            <div key={s.label} style={{ border: '1px solid var(--border)', borderRadius: '10px', padding: '16px', background: '#fff' }}>
-              <div style={{ fontSize: '24px', fontWeight: 700, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{s.label}</div>
-            </div>
-          ))}
-        </div>
+    <Page title="Image Domains" description="Pool subdomain ảnh chống footprint SEO. Mỗi site được gán một domain riêng." actions={actions}>
+      <StatGrid>
+        <StatCard label="Tổng domain" value={stats.total || 0} icon={Globe} loading={loading} hint="Trong pool" />
+        <StatCard label="Khả dụng" value={stats.available || 0} of={stats.total || 0} icon={CircleCheck} color={available < 10 ? 'yellow' : 'green'}
+          loading={loading} hint={available < 10 ? 'Sắp hết, nên Generate' : 'Sẵn sàng gán'} />
+        <StatCard label="Đang dùng" value={stats.used || 0} of={stats.total || 0} icon={Link2} loading={loading} hint="Đã gán cho site" />
+        <StatCard label="Bị block" value={stats.blocked || 0} of={stats.total || 0} icon={Ban} color={stats.blocked ? 'red' : 'gray'}
+          loading={loading} hint={stats.blocked ? 'Không dùng được' : 'Không có'} />
+      </StatGrid>
 
-        {/* Generate */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px', padding: '14px 16px', background: '#F8FAFC', borderRadius: '10px', border: '1px solid var(--border)' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600 }}>Generate domains:</span>
-          <input type="number" value={generateCount} onChange={e => setGenerateCount(+e.target.value)} min={1} max={100}
-            style={{ width: '70px', padding: '6px 10px', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '13px' }} />
-          <button className="btn btn-primary" onClick={handleGenerate} disabled={loading}>
-            <Zap size={14} /> {loading ? 'Đang tạo...' : 'Generate'}
-          </button>
-          {(stats.available || 0) < 10 && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: 'var(--warn)', fontWeight: 600 }}><AlertTriangle size={13} /> Pool sắp hết! ({stats.available} còn lại)</span>
-          )}
-        </div>
+      {!loading && available < 10 && (
+        <Alert color="yellow" icon={<AlertTriangle size={18} />} title="Pool sắp hết!">
+          Chỉ còn {available} domain khả dụng. Dùng Generate để tạo thêm.
+        </Alert>
+      )}
 
-        {view === 'cards' ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '12px' }}>
-            {domains.map(d => (
-              <div key={d.id} className="card" style={{ padding: '14px 16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '10px' }}>
-                  <span className="mono" style={{ color: d.is_blocked ? 'var(--text-muted)' : 'var(--text)', textDecoration: d.is_blocked ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.base_url}</span>
-                  <span className="chip" style={{ background: statusColor(d) + '15', color: statusColor(d), flexShrink: 0 }}>{statusLabel(d)}</span>
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
-                  Gán: {d.site_name || d.assigned_to || '—'}
-                </div>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <button className="btn btn-secondary btn-sm" onClick={() => handleBlock(d)} style={{ color: d.is_blocked ? 'var(--success)' : 'var(--danger)' }}>{d.is_blocked ? 'Unblock' : 'Block'}</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(d.id)} style={{ color: 'var(--danger)' }}>Xóa</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-        <div style={{ border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden', background: '#fff' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-            <thead>
-              <tr style={{ background: '#F8FAFC', borderBottom: '1px solid var(--border)' }}>
-                {['Domain', 'Status', 'Gán cho site', 'Tạo lúc', ''].map(h => (
-                  <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase' }}>{h}</th>
+      <Group justify="space-between" wrap="wrap">
+        <Group wrap="wrap">
+          <SearchInput placeholder="Tìm theo domain, site"
+            value={query} onChange={e => setQuery(e.currentTarget.value)} />
+          <SegmentedControl value={filter} onChange={v => setFilter(v as Filter)}
+            data={[
+              { value: 'all', label: 'Tất cả' }, { value: 'free', label: 'Free' },
+              { value: 'used', label: 'Used' }, { value: 'blocked', label: 'Blocked' },
+            ]} />
+        </Group>
+        <ViewToggle value={view} onChange={setView} />
+      </Group>
+
+      {loading ? (
+        <Stack>{[0, 1, 2, 3].map(i => <Skeleton key={i} h={48} />)}</Stack>
+      ) : filtered.length === 0 ? (
+        <EmptyState icon={Globe}
+          title={domains.length === 0 ? 'Chưa có domain nào' : 'Không có domain khớp bộ lọc'}
+          description={domains.length === 0 ? 'Dùng Generate để tạo domain cho pool.' : 'Thử đổi từ khóa hoặc trạng thái.'} />
+      ) : view === 'table' ? (
+        <Paper>
+          <Table.ScrollContainer minWidth={680}>
+            <Table>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Domain</Table.Th><Table.Th w={110}>Status</Table.Th>
+                  <Table.Th>Gán cho site</Table.Th><Table.Th w={120}>Tạo lúc</Table.Th><Table.Th w={96} />
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {filtered.map(d => (
+                  <Table.Tr key={d.id}>
+                    <Table.Td>
+                      <Text ff="monospace" size="sm" c={d.is_blocked ? 'dimmed' : undefined} td={d.is_blocked ? 'line-through' : undefined}>{d.base_url}</Text>
+                    </Table.Td>
+                    <Table.Td><Badge variant="light" color={statusColor(d)}>{statusLabel(d)}</Badge></Table.Td>
+                    <Table.Td><Text size="sm" c="dimmed">{d.site_name || d.assigned_to || '—'}</Text></Table.Td>
+                    <Table.Td><Text size="sm" c="dimmed">{fmtDate(d.created_at)}</Text></Table.Td>
+                    <Table.Td><RowActions d={d} /></Table.Td>
+                  </Table.Tr>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {domains.map((d, i) => (
-                <tr key={d.id} style={{ borderBottom: i < domains.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                  <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: d.is_blocked ? '#94A3B8' : 'var(--text)', textDecoration: d.is_blocked ? 'line-through' : 'none' }}>
-                    {d.base_url}
-                  </td>
-                  <td style={{ padding: '10px 14px' }}>
-                    <span style={{ padding: '3px 8px', background: statusColor(d) + '15', color: statusColor(d), borderRadius: '12px', fontSize: '11px', fontWeight: 600 }}>
-                      {statusLabel(d)}
-                    </span>
-                  </td>
-                  <td style={{ padding: '10px 14px', color: 'var(--text-muted)' }}>
-                    {d.site_name || d.assigned_to || '—'}
-                  </td>
-                  <td style={{ padding: '10px 14px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                    {d.created_at ? new Date(d.created_at).toLocaleDateString('vi') : '—'}
-                  </td>
-                  <td style={{ padding: '10px 14px' }}>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button onClick={() => handleBlock(d)}
-                        style={{ padding: '4px 10px', border: `1px solid ${d.is_blocked ? '#86EFAC' : '#FCA5A5'}`, borderRadius: '5px', background: 'transparent', color: d.is_blocked ? '#16A34A' : '#EF4444', cursor: 'pointer', fontSize: '11px' }}>
-                        {d.is_blocked ? 'Unblock' : 'Block'}
-                      </button>
-                      <button onClick={() => handleDelete(d.id)}
-                        style={{ padding: '4px 10px', border: '1px solid var(--border)', borderRadius: '5px', background: 'transparent', cursor: 'pointer', fontSize: '11px' }}>
-                        Xóa
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        )}
-      </div>
-    </div>
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
+        </Paper>
+      ) : (
+        <CardGrid maxCols={3}>
+          {filtered.map(d => (
+            <EntityCard key={d.id} dimmed={d.is_blocked || !d.is_active}
+              leading={<ThemeIcon size={36} radius="md" variant="light" color={statusColor(d)}><Globe size={18} strokeWidth={1.8} /></ThemeIcon>}
+              title={<Text ff="monospace" size="sm" fw={600} truncate title={d.base_url}
+                c={d.is_blocked ? 'dimmed' : undefined} td={d.is_blocked ? 'line-through' : undefined}>{d.base_url.replace(/^https?:\/\//, '')}</Text>}
+              subtitle={<Text size="xs" c="dimmed">{fmtDate(d.created_at)}</Text>}
+              status={<Badge variant="light" color={statusColor(d)} style={{ flexShrink: 0 }}>{statusLabel(d)}</Badge>}
+              footer={<>
+                <Text size="xs" c="dimmed" truncate>Gán: {d.site_name || d.assigned_to || 'Chưa gán'}</Text>
+                <RowActions d={d} />
+              </>} />
+          ))}
+        </CardGrid>
+      )}
+    </Page>
   )
 }

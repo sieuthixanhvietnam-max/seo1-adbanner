@@ -1,35 +1,40 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { Globe, Plus } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Select } from '@mantine/core'
+import { Globe } from 'lucide-react'
 import { siteApi } from '@/lib/api'
 import type { Site } from '@/lib/types'
-import { Select, type SelectOption } from '@/components/ui/Select'
 
-export default function SiteSwitcher({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+export default function SiteSwitcher({ value, onChange, autoSelect = false }: {
+  value: string
+  onChange: (id: string) => void
+  /** Tự chọn site đầu tiên khi chưa có giá trị */
+  autoSelect?: boolean
+}) {
   const [sites, setSites] = useState<Site[]>([])
-  useEffect(() => { siteApi.getAll().then(r => { if (r.success) setSites(r.data || []) }) }, [])
 
-  const options: SelectOption[] = sites.map(s => ({
-    value: s.id,
-    label: s.name,
-    dot: s.is_active ? 'var(--success)' : 'var(--text-muted)',
-  }))
+  useEffect(() => {
+    siteApi.getAll().then(r => {
+      if (!r.success) return
+      const list: Site[] = r.data || []
+      setSites(list)
+      if (autoSelect && !value && list.length) onChange(list[0].id)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <Select
-      value={value}
-      onChange={onChange}
-      options={options}
+      w={{ base: '100%', xs: 240 }}
+      aria-label="Chọn site"
       placeholder="Chọn site"
-      leadingIcon={<Globe size={14} color="var(--accent)" style={{ flexShrink: 0 }} />}
-      minWidth={180}
-      footer={
-        <a href="/admin/sites" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', fontSize: '12.5px', color: 'var(--text-secondary)', textDecoration: 'none', borderRadius: 'var(--radius-sm)' }}
-          onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-hover)')}
-          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-          <Plus size={14} /> Quản lý sites
-        </a>
-      }
+      searchable
+      allowDeselect={false}
+      leftSection={<Globe size={16} />}
+      nothingFoundMessage="Không tìm thấy site"
+      data={sites.map(s => ({ value: s.id, label: s.is_active ? s.name : `${s.name} (tắt)` }))}
+      value={value || null}
+      onChange={v => v && onChange(v)}
     />
   )
 }

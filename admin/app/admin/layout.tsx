@@ -1,57 +1,30 @@
 'use client'
-import { useState, useEffect } from 'react'
-import Sidebar from '@/components/Sidebar'
-import CommandBar from '@/components/CommandBar'
-import { ToastProvider } from '@/components/ToastProvider'
-
-const COLLAPSED_KEY = 'sidebar_collapsed'
+import { AppShell } from '@mantine/core'
+import { useDisclosure, useLocalStorage } from '@mantine/hooks'
+import Topbar from '@/components/shell/Topbar'
+import Navbar from '@/components/shell/Navbar'
+import AppSpotlight from '@/components/shell/AppSpotlight'
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const [cmdOpen, setCmdOpen] = useState(false)
-  const [collapsed, setCollapsed] = useState(false)
-
-  useEffect(() => {
-    const stored = localStorage.getItem(COLLAPSED_KEY)
-    if (stored === '1') setCollapsed(true)
-
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        setCmdOpen(o => !o)
-      }
-    }
-    window.addEventListener('keydown', handler)
-
-    // Listen for storage changes from Sidebar toggle
-    const storageHandler = () => {
-      setCollapsed(localStorage.getItem(COLLAPSED_KEY) === '1')
-    }
-    window.addEventListener('storage', storageHandler)
-
-    // Also poll since same-tab storage events don't fire
-    const interval = setInterval(storageHandler, 100)
-
-    return () => {
-      window.removeEventListener('keydown', handler)
-      window.removeEventListener('storage', storageHandler)
-      clearInterval(interval)
-    }
-  }, [])
+  const [mobileOpened, { toggle: toggleMobile, close: closeMobile }] = useDisclosure(false)
+  const [collapsed, setCollapsed] = useLocalStorage({
+    key: 'sidebar_collapsed', defaultValue: false, getInitialValueInEffect: true,
+    serialize: v => (v ? '1' : '0'), deserialize: v => v === '1',
+  })
 
   return (
-    <ToastProvider>
-      <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg)' }}>
-        <Sidebar onOpenCommand={() => setCmdOpen(true)} />
-        <div style={{
-          marginLeft: collapsed ? '56px' : 'var(--sidebar-w)',
-          flex: 1,
-          display: 'flex', flexDirection: 'column', minHeight: '100vh',
-          transition: 'margin-left 0.2s ease',
-        }}>
-          {children}
-        </div>
-        <CommandBar open={cmdOpen} onClose={() => setCmdOpen(false)} />
-      </div>
-    </ToastProvider>
+    <AppShell
+      header={{ height: 60 }}
+      navbar={{ width: collapsed ? 68 : 240, breakpoint: 'sm', collapsed: { mobile: !mobileOpened } }}
+      padding={0}
+      transitionDuration={200}
+    >
+      <AppShell.Header><Topbar opened={mobileOpened} onToggle={toggleMobile} /></AppShell.Header>
+      <AppShell.Navbar>
+        <Navbar collapsed={collapsed} onToggleCollapse={() => setCollapsed(c => !c)} onNavigate={closeMobile} />
+      </AppShell.Navbar>
+      <AppShell.Main>{children}</AppShell.Main>
+      <AppSpotlight />
+    </AppShell>
   )
 }
