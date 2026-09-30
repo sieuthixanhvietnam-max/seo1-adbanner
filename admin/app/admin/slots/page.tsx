@@ -400,7 +400,7 @@ export default function SlotsPage() {
                     <PlacementHeader placement={placement} cfg={cfg} slots={list} color={color} collapsed={!!collapsed[placement]}
                       onToggle={() => setCollapsed(c => ({ ...c, [placement]: !c[placement] }))} />
                     <Collapse expanded={!collapsed[placement]}>
-                      <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="sm">
+                      <SimpleGrid cols={placement === 'slider' ? { base: 1, sm: 2, xl: 4 } : { base: 1, lg: 2 }} spacing="sm">
                         {list.map(slot => (
                           <SlotCard key={slot.id} slot={slot} color={color} brands={brands}
                             onUpdate={handleUpdate} onReorder={handleReorder} onRemoveBanner={handleRemove} onPreview={setPreview} />
