@@ -438,7 +438,7 @@ export default function BannersPage() {
               onChange={v => setUpForm(f => ({ ...f, brand_id: v || '' }))} />
           </SimpleGrid>
           <TextInput label="Click URL" description="Để trống = dùng URL brand" placeholder="(tùy chọn)" styles={MONO}
-            value={upForm.click_url} onChange={e => setUpForm(f => ({ ...f, click_url: e.currentTarget.value }))} />
+            value={upForm.click_url} onChange={e => { const v = e.currentTarget.value; setUpForm(f => ({ ...f, click_url: v })) }} />
 
           <Box>
             <Text size="sm" fw={500} mb={4}>Ảnh (kéo-thả hoặc chọn nhiều)</Text>
@@ -513,7 +513,7 @@ export default function BannersPage() {
                 </Group>
               </Stack>
             </Group>
-            <TextInput label="Tiêu đề" value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.currentTarget.value }))} />
+            <TextInput label="Tiêu đề" value={editForm.title} onChange={e => { const v = e.currentTarget.value; setEditForm(f => ({ ...f, title: v })) }} />
             <SimpleGrid cols={{ base: 1, sm: 2 }}>
               <Select label="Vị trí (placement)" data={placementOpts.some(o => o.value === editForm.placement) ? placementOpts : [...placementOpts, { value: editForm.placement, label: editForm.placement }]}
                 value={editForm.placement} allowDeselect={false} onChange={v => setEditForm(f => ({ ...f, placement: v || f.placement }))} />
@@ -521,8 +521,8 @@ export default function BannersPage() {
                 onChange={v => setEditForm(f => ({ ...f, brand_id: v || '' }))} />
             </SimpleGrid>
             <TextInput label="Click URL" description="Để trống = dùng URL brand" styles={MONO} value={editForm.click_url}
-              onChange={e => setEditForm(f => ({ ...f, click_url: e.currentTarget.value }))} />
-            <StatusSwitch checked={editForm.is_active} label="Đang bật" onChange={e => setEditForm(f => ({ ...f, is_active: e.currentTarget.checked }))} />
+              onChange={e => { const v = e.currentTarget.value; setEditForm(f => ({ ...f, click_url: v })) }} />
+            <StatusSwitch checked={editForm.is_active} label="Đang bật" onChange={e => { const v = e.currentTarget.checked; setEditForm(f => ({ ...f, is_active: v })) }} />
             <Group justify="flex-end" mt="xs">
               <Button variant="default" onClick={() => setEditing(null)} disabled={saving}>Hủy</Button>
               <Button onClick={handleSave} loading={saving}>Lưu</Button>

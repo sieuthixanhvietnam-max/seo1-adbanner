@@ -338,11 +338,11 @@ export default function BrandsPage() {
       <Modal opened={formOpen} onClose={() => setFormOpen(false)} title={editBrand ? `Sửa: ${editBrand.name}` : 'Thêm brand'}>
         <Stack>
           <TextInput label="ID (slug)" required value={form.id} placeholder="net88, 789, sun..." styles={MONO}
-            onChange={e => setForm(f => ({ ...f, id: e.currentTarget.value }))} />
+            onChange={e => { const v = e.currentTarget.value; setForm(f => ({ ...f, id: v })) }} />
           <TextInput label="Tên brand" required value={form.name} placeholder="Net88"
-            onChange={e => setForm(f => ({ ...f, name: e.currentTarget.value }))} />
+            onChange={e => { const v = e.currentTarget.value; setForm(f => ({ ...f, name: v })) }} />
           <TextInput label="Domain" description="Đổi khi bị block" value={form.domain} placeholder="https://net88vip.com/dang-nhap" styles={MONO}
-            onChange={e => setForm(f => ({ ...f, domain: e.currentTarget.value }))} />
+            onChange={e => { const v = e.currentTarget.value; setForm(f => ({ ...f, domain: v })) }} />
           <Group grow align="flex-start">
             <Stack gap={6}>
               <FileInput label="Logo (tùy chọn)" accept="image/*" clearable value={logoFile} onChange={setLogoFile} placeholder="Chọn ảnh" />

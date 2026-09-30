@@ -310,20 +310,20 @@ export default function SitesPage() {
             {!editSite && (
               <Grid.Col span={{ base: 12, sm: 6 }}>
                 <TextInput label="ID (slug)" required value={form.id} placeholder="nganh-g" styles={MONO}
-                  onChange={e => setForm(f => ({ ...f, id: e.currentTarget.value }))} />
+                  onChange={e => { const v = e.currentTarget.value; setForm(f => ({ ...f, id: v })) }} />
               </Grid.Col>
             )}
             <Grid.Col span={{ base: 12, sm: editSite ? 12 : 6 }}>
               <TextInput label="Tên site" required value={form.name} placeholder="Ngành G"
-                onChange={e => setForm(f => ({ ...f, name: e.currentTarget.value }))} />
+                onChange={e => { const v = e.currentTarget.value; setForm(f => ({ ...f, name: v })) }} />
             </Grid.Col>
             <Grid.Col span={{ base: 12, sm: 6 }}>
               <TextInput label="Domain WordPress" description="Tùy chọn, dùng để tự nhận diện site" value={form.domain} placeholder="nganh-g.com" styles={MONO}
-                onChange={e => setForm(f => ({ ...f, domain: e.currentTarget.value }))} />
+                onChange={e => { const v = e.currentTarget.value; setForm(f => ({ ...f, domain: v })) }} />
             </Grid.Col>
             <Grid.Col span={{ base: 12, sm: 6 }}>
               <TextInput label="Site type" description="Tùy chọn" value={form.site_type} placeholder="nganh-g" styles={MONO}
-                onChange={e => setForm(f => ({ ...f, site_type: e.currentTarget.value }))} />
+                onChange={e => { const v = e.currentTarget.value; setForm(f => ({ ...f, site_type: v })) }} />
             </Grid.Col>
           </Grid>
 
@@ -374,7 +374,7 @@ export default function SitesPage() {
               </Stack>
             ) : (
               <Textarea autosize minRows={8} maxRows={16} styles={MONO} value={form.placements}
-                onChange={e => setForm(f => ({ ...f, placements: e.currentTarget.value }))} />
+                onChange={e => { const v = e.currentTarget.value; setForm(f => ({ ...f, placements: v })) }} />
             )}
           </Stack>
 
