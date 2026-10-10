@@ -46,7 +46,6 @@ seo1-adbanner/
 │   │       ├── toplist/        # Toplist drag-drop
 │   │       ├── brands/         # CRUD + bulk import JSON + lịch sử domain
 │   │       ├── banners/        # Banner pool upload
-│   │       ├── tracking/       # Tracking links (Google Sheet)
 │   │       ├── image-domains/  # Domain pool manager
 │   │       ├── api-clients/    # Quản lý API key cho /api/ext/v1
 │   │       └── recycle/        # Recycle bin

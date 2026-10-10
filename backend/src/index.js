@@ -105,7 +105,6 @@ const slotsRouter        = require('./routes/slots');
 const imageDomainsRouter = require('./routes/image-domains');
 const publicRouter       = require('./routes/public');
 const toplistRouter      = require('./routes/toplist');
-const trackingRouter     = require('./routes/tracking');
 const { router: apiClientsRouter } = require('./routes/api-clients');
 const extRouter          = require('./routes/ext');
 
@@ -227,7 +226,6 @@ app.use('/api/banners',       auth, bannersRouter);
 app.use('/api/slots',         auth, slotsRouter);
 app.use('/api/toplist',       auth, toplistRouter);
 app.use('/api/image-domains', auth, imageDomainsRouter);
-app.use('/api/tracking',     auth, trackingRouter);
 app.use('/api/api-clients',  auth, apiClientsRouter);
 
 app.post('/api/cache/clear', auth, (req, res) => {
