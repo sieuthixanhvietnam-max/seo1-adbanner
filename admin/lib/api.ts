@@ -128,15 +128,4 @@ export const cacheApi = {
   clear: (siteId?: string) => request('/api/cache/clear', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ site_id: siteId }) }),
 }
 
-export const trackingApi = {
-  getStatus:    ()                          => request('/api/tracking/status', { headers: authHeaders() }),
-  getAll:       (params?: { domain?: string; brand_id?: string; page?: number; limit?: number }) => {
-    const qs = params ? '?' + new URLSearchParams(Object.entries(params).filter(([,v]) => v !== undefined).map(([k,v]) => [k, String(v)])).toString() : ''
-    return request(`/api/tracking${qs}`, { headers: authHeaders() })
-  },
-  saveSheetUrl: (sheet_url: string)        => request('/api/tracking/sheet-url', { method: 'PUT', headers: jsonHeaders(), body: JSON.stringify({ sheet_url }) }),
-  sync:         (sheet_url?: string)       => request('/api/tracking/sync', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ sheet_url }) }),
-  delete:       (domain: string, brand_id?: string) => request('/api/tracking', { method: 'DELETE', headers: jsonHeaders(), body: JSON.stringify({ domain, brand_id }) }),
-}
-
 export { getBaseUrl, jsonHeaders }

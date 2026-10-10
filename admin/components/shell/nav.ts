@@ -1,6 +1,6 @@
 import {
   LayoutGrid, Trophy, Building2, ImageIcon, Server, Trash2,
-  Globe, Link2, KeyRound, type LucideIcon,
+  Globe, KeyRound, type LucideIcon,
 } from 'lucide-react'
 
 export interface NavItem { href: string; label: string; icon: LucideIcon }
@@ -25,7 +25,6 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Hệ thống',
     items: [
-      { href: '/admin/tracking',      label: 'Tracking Links', icon: Link2 },
       { href: '/admin/image-domains', label: 'Image Domains',  icon: Server },
       { href: '/admin/api-clients',   label: 'API Clients',    icon: KeyRound },
       { href: '/admin/recycle',       label: 'Recycle Bin',    icon: Trash2 },
