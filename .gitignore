@@ -25,3 +25,6 @@ Thumbs.db
 
 # PM2
 .pm2/
+
+# Plugin build artifacts
+plugin/*.zip

@@ -1,29 +1,23 @@
-# AdBanner Client — WordPress Plugin
+# SEO1 Ad Banner — WordPress Plugin
 
-**Status: TODO**
+Plugin đang dùng: `seo1-adbanner/` (shortcode `[seo1_banner]`).
 
-Xem thiết kế chi tiết trong `CLAUDE.md` phần "WordPress Plugin".
-
-## Shortcodes
-```
-[adbanner type="catfish"]
-[adbanner type="popup"]
-[adbanner type="slider"]
-[adbanner type="button"]
-[adbanner type="brand-button"]
-[adbanner type="toplist"]
-```
-
-## Cấu trúc dự kiến
+## Cấu trúc
 ```
 plugin/
-├── adbanner.php           ← Main plugin file
-├── includes/
-│   ├── class-settings.php ← WP Admin settings page
-│   ├── class-api.php      ← Gọi API + WP transient cache
-│   ├── class-render.php   ← Render shortcode HTML
-│   └── class-assets.php   ← Enqueue CSS/JS
-└── assets/
-    ├── adbanner.css       ← Structural CSS (position:fixed, overlay...)
-    └── adbanner.js        ← Rotate logic, popup delay, slider carousel
+├── adbanner-config.php        ← Style config mặc định (đóng gói vào seo1-adbanner/ khi build ZIP)
+└── seo1-adbanner/
+    ├── seo1-adbanner.php      ← Main plugin file
+    ├── includes/
+    │   ├── class-admin.php        ← Trang cài đặt WP Admin
+    │   ├── class-api-client.php   ← Gọi backend API
+    │   ├── class-remote-config.php
+    │   ├── class-css.php
+    │   ├── class-renderer.php     ← Render HTML
+    │   ├── class-shortcode.php    ← Đăng ký shortcode
+    │   └── frontend.js
+    └── assets/{css,js}/       ← admin + frontend
 ```
+
+## Build
+Nén thư mục `seo1-adbanner/` thành ZIP để cài lên WordPress. File `*.zip` bị git bỏ qua, không commit.
