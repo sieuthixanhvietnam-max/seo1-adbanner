@@ -28,6 +28,8 @@ seo1-adbanner/
 │       └── utils/
 │           ├── cache.js          # 2-tier cache (node-cache)
 │           ├── storage.js        # R2 + local fallback
+│           ├── imageAlias.js     # Alias ảnh theo site (path riêng/site, bảng image_aliases)
+│           ├── imageVariant.js   # Biến thể byte riêng/site (cache backend/data/variants)
 │           └── defaultStyles.js  # Style mặc định mỗi placement
 │
 ├── admin/                # Next.js 16 + Mantine v9 Admin Dashboard
@@ -134,6 +136,7 @@ slots              → vị trí hiển thị (site + placement + position)
 slot_banners       → join: slot ↔ banner (nhiều banner khi rotate)
 toplist_entries    → bảng xếp hạng nhà cái theo site
 image_domains      → pool subdomain chống footprint SEO
+image_aliases      → alias ảnh công khai theo (site, image_key) + seed biến thể byte
 ```
 
 DB tự migrate khi start — không cần chạy migration thủ công.
@@ -202,6 +205,17 @@ GET /api/ext/v1/brands
 GET /api/ext/v1/toplist?site=:id
 ```
 Key dạng `sk1_...`, tạo ở admin/api-clients (chỉ hiện 1 lần, DB chỉ lưu SHA-256). Giới hạn 300 req/phút/key.
+
+---
+
+## Chống footprint ảnh
+
+- API phục vụ plugin (`/api/v2/site/:id/banners`, `/api/ext/v1/sites/:id/banners`, `/api/ext/v1/toplist`) trả `image_url` dạng alias riêng từng site: `/wp-content/uploads/YYYY/MM/<slug>.<ext>` (hoặc `<pool-domain>/YYYY/MM/<slug>.<ext>` nếu site có image domain). Dùng `publicImageUrl(siteId, key, imageBase)` từ `utils/imageAlias.js`.
+- Admin UI và các route CRUD vẫn dùng `buildImageUrl(key)` với key gốc — KHÔNG đổi sang alias.
+- Proxy `/wp-content/uploads/*` (index.js) tra alias trước; khớp thì phục vụ biến thể byte riêng của site (`IMAGE_VARIANTS=off` để tắt), không khớp thì rơi về key gốc.
+- Alias tạo lười lần đầu site gọi API và lưu bền → URL ổn định cho cache/CDN. Xóa site thì alias xóa theo (cascade).
+- Ảnh brand toàn cục ở `/api/brands/urls`, `/api/ext/v1/brands` không thuộc site nào nên giữ key gốc (plugin chỉ dùng cho admin WP).
+- Test: `npm test -w backend`.
 
 ---
 

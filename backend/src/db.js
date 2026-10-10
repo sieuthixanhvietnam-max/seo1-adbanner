@@ -6,7 +6,7 @@ const fs = require('fs');
 const dataDir = path.join(__dirname, '../data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-const db = new Database(path.join(dataDir, 'adserver.db'));
+const db = new Database(process.env.DB_PATH || path.join(dataDir, 'adserver.db'));
 
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
@@ -208,6 +208,20 @@ runSafe(`
   )
 `);
 runSafe(`CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip, success, created_at)`);
+
+// Alias ảnh theo site — mỗi (site × image_key) có 1 path công khai riêng, chống footprint.
+// image_key gốc chỉ dùng nội bộ; seed dùng để sinh biến thể byte riêng cho site.
+runSafe(`
+  CREATE TABLE IF NOT EXISTS image_aliases (
+    alias      TEXT PRIMARY KEY,
+    site_id    TEXT NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    image_key  TEXT NOT NULL,
+    seed       TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (site_id, image_key)
+  )
+`);
+runSafe(`CREATE INDEX IF NOT EXISTS idx_image_aliases_key ON image_aliases(image_key)`);
 
 // Index bổ sung cho query slot theo site (fix N+1 performance)
 runSafe(`CREATE INDEX IF NOT EXISTS idx_slots_site_placement ON slots(site_id, placement, position)`);

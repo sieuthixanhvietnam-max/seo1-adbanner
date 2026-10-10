@@ -11,6 +11,7 @@ const crypto    = require('crypto');
 const rateLimit = require('express-rate-limit');
 const db        = require('../db');
 const { buildImageUrl } = require('../utils/storage');
+const { publicImageUrl } = require('../utils/imageAlias');
 const publicRouter = require('./public');
 const { extAuth } = require('./api-clients');
 
@@ -110,7 +111,7 @@ router.get('/toplist', (req, res) => {
         rank:      t.rank,
         brand_id:  t.brand_id,
         name:      t.name,
-        image_url: buildImageUrl(t.image_key || t.logo_url, site.image_base_url || null),
+        image_url: publicImageUrl(siteId, t.image_key || t.logo_url, site.image_base_url || null),
       })),
     });
   } catch (err) {

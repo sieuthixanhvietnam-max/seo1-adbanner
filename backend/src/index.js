@@ -253,6 +253,17 @@ app.use('/wp-content/uploads', async (req, res) => {
   if (/[^\w\-./]/.test(key) || key.includes('..')) return res.status(400).end();
 
   try {
+    // Alias theo site (YYYY/MM/slug.ext) → phục vụ biến thể byte riêng của site đó.
+    // Không khớp alias thì rơi xuống đường cũ (key gốc) — admin UI và URL cũ vẫn chạy.
+    const aliasRow = resolveAlias(key);
+    if (aliasRow) {
+      const img = await getAliasImage(aliasRow);
+      if (!img) return res.status(404).end();
+      res.set('Cache-Control', 'public, max-age=31536000, immutable');
+      res.set('Content-Type', img.mime);
+      return res.send(img.buffer);
+    }
+
     if (isR2) {
       const internalUrl = getInternalImageUrl(key);
       const r2res = await fetch(internalUrl);
@@ -297,6 +308,8 @@ app.use((err, req, res, next) => {
 // ─── Server + Graceful shutdown ───────────────────────────────────────────────
 const { startDomainChecker } = require('./utils/domain-checker');
 const { getInternalImageUrl, isR2 } = require('./utils/storage');
+const { resolveAlias } = require('./utils/imageAlias');
+const { getAliasImage } = require('./utils/imageVariant');
 
 const server = app.listen(PORT, () => {
   logger.info(`Ad Server v5.1 khởi động tại http://localhost:${PORT}`);

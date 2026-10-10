@@ -7,7 +7,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { buildImageUrl } = require('../utils/storage');
+const { publicImageUrl } = require('../utils/imageAlias');
 const cache = require('../utils/cache');
 
 // ─── GET /api/v2/sites — danh sách sites active ──────────────────────────────
@@ -111,7 +111,7 @@ router.get('/site/:id/banners', (req, res) => {
       id:        b.id,
       brand_id:  b.brand_id || null,   // khóa để plugin resolve click_url từ /urls
       title:     b.title,
-      image_url: buildImageUrl(b.image_key, imageBase),
+      image_url: publicImageUrl(siteId, b.image_key, imageBase),
       click_url: b.click_url || null,  // chỉ có giá trị khi override thủ công; null = dùng brand
     });
 
@@ -166,7 +166,7 @@ router.get('/site/:id/banners', (req, res) => {
     result.brands = brands.map(b => ({
       id:           b.id,
       name:         b.name,
-      button_image: buildImageUrl(b.button_image, imageBase),
+      button_image: publicImageUrl(siteId, b.button_image, imageBase),
       // click_url resolve từ /api/brands/urls (tức thì khi đổi domain)
     }));
 
@@ -183,7 +183,7 @@ router.get('/site/:id/banners', (req, res) => {
       rank:      t.rank,
       brand_id:  t.brand_id,
       name:      t.brand_name,
-      image_url: buildImageUrl(t.image_key || t.brand_logo, imageBase),
+      image_url: publicImageUrl(siteId, t.image_key || t.brand_logo, imageBase),
       // click_url resolve từ /api/brands/urls như banner
     }));
 
