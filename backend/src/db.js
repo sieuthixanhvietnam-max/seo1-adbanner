@@ -209,19 +209,48 @@ runSafe(`
 `);
 runSafe(`CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip, success, created_at)`);
 
-// Alias ảnh theo site — mỗi (site × image_key) có 1 path công khai riêng, chống footprint.
-// image_key gốc chỉ dùng nội bộ; seed dùng để sinh biến thể byte riêng cho site.
+// Alias ảnh — mỗi (nhóm site × domain WP × image_key) có 1 path công khai riêng, chống footprint.
+// domain = '' là alias dùng chung cả nhóm (fallback). image_key gốc chỉ dùng nội bộ.
+// seed chỉ dùng cho biến thể byte (IMAGE_VARIANTS=on).
 runSafe(`
   CREATE TABLE IF NOT EXISTS image_aliases (
     alias      TEXT PRIMARY KEY,
     site_id    TEXT NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    domain     TEXT NOT NULL DEFAULT '',
     image_key  TEXT NOT NULL,
     seed       TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (site_id, image_key)
+    UNIQUE (site_id, domain, image_key)
   )
 `);
+// Nâng cấp bảng cũ (UNIQUE(site_id, image_key), chưa có cột domain) mà không mất alias đang dùng
+try {
+  const cols = db.prepare(`PRAGMA table_info(image_aliases)`).all().map(c => c.name);
+  if (!cols.includes('domain')) {
+    db.transaction(() => {
+      db.exec(`ALTER TABLE image_aliases RENAME TO image_aliases_old`);
+      db.exec(`
+        CREATE TABLE image_aliases (
+          alias      TEXT PRIMARY KEY,
+          site_id    TEXT NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+          domain     TEXT NOT NULL DEFAULT '',
+          image_key  TEXT NOT NULL,
+          seed       TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (site_id, domain, image_key)
+        )
+      `);
+      db.exec(`INSERT INTO image_aliases (alias, site_id, domain, image_key, seed, created_at)
+               SELECT alias, site_id, '', image_key, seed, created_at FROM image_aliases_old
+               WHERE site_id IN (SELECT id FROM sites)`); // bỏ alias mồ côi (nhóm đã xóa) để không vi phạm FK
+      db.exec(`DROP TABLE image_aliases_old`);
+    })();
+  }
+} catch (err) {
+  console.error('[db] migrate image_aliases failed:', err.message);
+}
 runSafe(`CREATE INDEX IF NOT EXISTS idx_image_aliases_key ON image_aliases(image_key)`);
+runSafe(`CREATE INDEX IF NOT EXISTS idx_image_aliases_domain ON image_aliases(domain)`);
 // Bỏ alias định dạng cũ YYYY/MM/slug (2 dấu '/') — plugin WP không chuyển tiếp được dạng này
 runSafe(`DELETE FROM image_aliases WHERE length(alias) - length(replace(alias, '/', '')) != 1`);
 

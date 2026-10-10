@@ -210,12 +210,13 @@ Key dạng `sk1_...`, tạo ở admin/api-clients (chỉ hiện 1 lần, DB ch�
 
 ## Chống footprint ảnh
 
-- API phục vụ plugin (`/api/v2/site/:id/banners`, `/api/ext/v1/sites/:id/banners`, `/api/ext/v1/toplist`) trả `image_url` dạng alias riêng từng site: `/wp-content/uploads/<dir>/<slug>.<ext>` với `<dir>` giữ nguyên `banners|brands|toplist` (hoặc `<pool-domain>/<dir>/<slug>.<ext>` nếu site có image domain). Dùng `publicImageUrl(siteId, key, imageBase)` từ `utils/imageAlias.js`.
+- Mỗi domain WordPress có tên file ảnh riêng. API phục vụ plugin (`/api/v2/site/:id/banners`) trả `image_url` dạng `/wp-content/uploads/<dir>/<slug>.<ext>`, `<dir>` giữ nguyên `banners|brands|toplist`, `<slug>` ngẫu nhiên `[a-z0-9]{8,16}` lưu trong bảng `image_aliases` (khóa: nhóm site + domain + image_key). Dùng `publicImageUrl(siteId, key, imageBase, aliasDomain)` từ `utils/imageAlias.js`.
+- "Site" trong backend là **nhóm** (nganh-s, phishing-s... ~30), một nhóm gồm nhiều website WP. Domain WP lấy từ `?domain=` — plugin 1.1.8 đã tự gửi (`seo1-adbanner.php`). Không có domain / không hợp lệ / công tắc tắt / vượt trần `IMAGE_ALIAS_MAX_DOMAINS` → alias dùng chung cả nhóm (domain `''`), không bao giờ lỗi.
+- Công tắc: `IMAGE_ALIAS_PER_DOMAIN=on|off` (mặc định off) và `IMAGE_ALIAS_PILOT_DOMAINS=a.com,b.com` để thử vài domain trước.
+- Cache dữ liệu banner khóa theo `site:<id>:<domain>` (tracking_urls và alias phụ thuộc domain).
 - Admin UI và các route CRUD vẫn dùng `buildImageUrl(key)` với key gốc — KHÔNG đổi sang alias.
-- Proxy `/wp-content/uploads/*` (index.js) tra alias trước; khớp thì phục vụ biến thể byte riêng của site (`IMAGE_VARIANTS=off` để tắt), không khớp thì rơi về key gốc.
-- Alias tạo lười lần đầu site gọi API và lưu bền → URL ổn định cho cache/CDN. Xóa site thì alias xóa theo (cascade).
-- Ảnh brand toàn cục ở `/api/brands/urls`, `/api/ext/v1/brands` không thuộc site nào nên giữ key gốc (plugin chỉ dùng cho admin WP).
-- **RÀNG BUỘC PLUGIN:** plugin WP trên các site chỉ chuyển tiếp `/wp-content/uploads/(banners|brands|toplist)/<1 đoạn tên file>` (`plugin/seo1-adbanner/seo1-adbanner.php`). Alias KHÔNG được thêm cấp thư mục (vd `YYYY/MM/`) — sẽ 404 trên mọi site (sự cố 2026-10-10). Test `TƯƠNG THÍCH PLUGIN WP` đọc regex từ file plugin để chặn lỗi này.
+- Proxy `/wp-content/uploads/*` (index.js) tra alias trước, không khớp thì rơi về key gốc. Biến thể byte (`IMAGE_VARIANTS=on`) mặc định TẮT: chỉ đổi tên, byte ảnh giữ nguyên.
+- **RÀNG BUỘC PLUGIN:** plugin trên các site chỉ xử lý `/wp-content/uploads/(banners|brands|toplist)/<tên file [A-Za-z0-9._-]{1,120}>.(webp|png|jpe?g|gif|avif)` và tải ảnh về đĩa site theo đúng tên đó (`plugin/seo1-adbanner/seo1-adbanner.php`, `includes/class-image-cache.php`). Alias KHÔNG được thêm cấp thư mục (sự cố 404 toàn bộ site 2026-10-10). Test "TƯƠNG THÍCH PLUGIN" đọc regex trực tiếp từ mã nguồn plugin — nhớ giữ `plugin/seo1-adbanner/` đồng bộ với bản đang chạy trên site.
 - Test: `npm test -w backend`.
 
 ---

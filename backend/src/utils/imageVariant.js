@@ -4,7 +4,7 @@
  * Lần đầu một alias được yêu cầu: đọc ảnh gốc, encode lại với chất lượng lệch nhẹ
  * (theo seed) + 1 trường EXIF riêng → file khác byte, mắt thường không phân biệt.
  * Kết quả cache trên đĩa (backend/data/variants) nên mỗi alias chỉ encode 1 lần.
- * Tắt bằng IMAGE_VARIANTS=off. Ảnh động / GIF / lỗi encode → phục vụ ảnh gốc.
+ * Mặc định TẮT; bật bằng IMAGE_VARIANTS=on. Ảnh động / GIF / lỗi encode → phục vụ ảnh gốc.
  */
 const fs = require('fs');
 const path = require('path');
@@ -13,7 +13,7 @@ const logger = require('./logger');
 const { getInternalImageUrl, isR2 } = require('./storage');
 // dotenv loaded once in index.js
 
-const enabled = process.env.IMAGE_VARIANTS !== 'off';
+const enabled = process.env.IMAGE_VARIANTS === 'on'; // mặc định TẮT: chỉ đổi tên file, giữ nguyên byte ảnh
 const VARIANT_DIR = process.env.VARIANT_DIR || path.join(__dirname, '../../data/variants');
 const UPLOADS_ROOT = path.resolve(path.join(__dirname, '../../uploads'));
 

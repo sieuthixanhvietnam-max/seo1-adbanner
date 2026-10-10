@@ -7,7 +7,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { publicImageUrl } = require('../utils/imageAlias');
+const { publicImageUrl, normalizeDomain, aliasDomainFor } = require('../utils/imageAlias');
 const cache = require('../utils/cache');
 
 // ─── GET /api/v2/sites — danh sách sites active ──────────────────────────────
@@ -56,8 +56,13 @@ router.get('/site/:id/banners', (req, res) => {
       });
     }
 
+    // Domain WP gọi API (plugin gửi ?domain=). Dữ liệu trả về phụ thuộc domain (tracking_urls + alias ảnh)
+    // → khóa cache theo (nhóm, domain), nếu không domain này sẽ nhận nhầm dữ liệu của domain khác.
+    const reqDomain   = normalizeDomain(req.query.domain);
+    const aliasDomain = aliasDomainFor(req.query.domain); // '' = alias chung cả nhóm
+
     // Tier 1 in-memory cache
-    const cacheKey = `site:${siteId}`;
+    const cacheKey = `site:${siteId}:${reqDomain}`;
     const cached = cache.getBanners(cacheKey);
     if (cached) return res.json({ success: true, data: cached, cached: true });
 
@@ -111,7 +116,7 @@ router.get('/site/:id/banners', (req, res) => {
       id:        b.id,
       brand_id:  b.brand_id || null,   // khóa để plugin resolve click_url từ /urls
       title:     b.title,
-      image_url: publicImageUrl(siteId, b.image_key, imageBase),
+      image_url: publicImageUrl(siteId, b.image_key, imageBase, aliasDomain),
       click_url: b.click_url || null,  // chỉ có giá trị khi override thủ công; null = dùng brand
     });
 
@@ -166,7 +171,7 @@ router.get('/site/:id/banners', (req, res) => {
     result.brands = brands.map(b => ({
       id:           b.id,
       name:         b.name,
-      button_image: publicImageUrl(siteId, b.button_image, imageBase),
+      button_image: publicImageUrl(siteId, b.button_image, imageBase, aliasDomain),
       // click_url resolve từ /api/brands/urls (tức thì khi đổi domain)
     }));
 
@@ -183,7 +188,7 @@ router.get('/site/:id/banners', (req, res) => {
       rank:      t.rank,
       brand_id:  t.brand_id,
       name:      t.brand_name,
-      image_url: publicImageUrl(siteId, t.image_key || t.brand_logo, imageBase),
+      image_url: publicImageUrl(siteId, t.image_key || t.brand_logo, imageBase, aliasDomain),
       // click_url resolve từ /api/brands/urls như banner
     }));
 
@@ -191,9 +196,6 @@ router.get('/site/:id/banners', (req, res) => {
 
     // Tracking URLs theo domain plugin gửi lên (?domain=xxx.com)
     // Plugin dùng để render link banner — ưu tiên hơn brand URL gốc
-    const reqDomain = req.query.domain
-      ? String(req.query.domain).replace(/^https?:\/\//, '').replace(/^www\./i, '').replace(/\/$/, '').toLowerCase()
-      : '';
     if (reqDomain) {
       const trackRows = db.prepare(`SELECT brand_id, track_url FROM site_tracking WHERE domain = ?`).all(reqDomain);
       if (trackRows.length) {
