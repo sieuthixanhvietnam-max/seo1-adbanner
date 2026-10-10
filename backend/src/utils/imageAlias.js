@@ -2,7 +2,7 @@
  * Alias ảnh theo site (chống footprint).
  *
  * image_key gốc (banners/<ts>-<hash>.webp) giống nhau trên mọi site. Mỗi cặp
- * (site, image_key) được cấp 1 alias riêng dạng WordPress: YYYY/MM/<slug>.<ext>
+ * (site, image_key) được cấp 1 alias riêng dạng <dir>/<slug>.<ext> (dir giữ nguyên banners|brands|toplist)
  * và lưu bền trong bảng image_aliases, nên URL ổn định (cache/CDN không vỡ) và
  * đổi secret chỉ ảnh hưởng alias tạo mới.
  */
@@ -23,17 +23,17 @@ const stmtByAlias = db.prepare(`SELECT alias, site_id, image_key, seed FROM imag
 
 const hmac = (data) => crypto.createHmac('sha256', SECRET).update(data).digest();
 
+// Plugin WP trên các site chỉ chuyển tiếp /wp-content/uploads/(banners|brands|toplist)/<1 đoạn tên file>
+// (xem plugin/seo1-adbanner/seo1-adbanner.php) → alias PHẢI giữ dạng <dir>/<slug>.<ext>, không thêm cấp thư mục.
+const PROXIED_DIRS = new Set(['banners', 'brands', 'toplist']);
+
 function buildCandidate(siteId, key, attempt) {
   const h = hmac(`${siteId}\n${key}\n${attempt}`);
-  // YYYY/MM nằm trong 12 tháng gần nhất, ổn định theo hash
-  const d = new Date();
-  d.setUTCDate(1);
-  d.setUTCMonth(d.getUTCMonth() - (h[0] % 12));
-  const yyyy = d.getUTCFullYear();
-  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const first = key.split('/')[0];
+  const dir = PROXIED_DIRS.has(first) ? first : 'banners';
   const slug = BigInt('0x' + h.subarray(1, 9).toString('hex')).toString(36).padStart(10, '0').slice(0, 10);
   const ext = path.extname(key).toLowerCase() || '.webp';
-  return `${yyyy}/${mm}/${slug}${ext}`;
+  return `${dir}/${slug}${ext}`;
 }
 
 /** Alias (không gồm prefix /wp-content/uploads) cho cặp (site, key); tạo nếu chưa có. */

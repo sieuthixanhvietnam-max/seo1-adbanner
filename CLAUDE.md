@@ -210,11 +210,12 @@ Key dạng `sk1_...`, tạo ở admin/api-clients (chỉ hiện 1 lần, DB ch�
 
 ## Chống footprint ảnh
 
-- API phục vụ plugin (`/api/v2/site/:id/banners`, `/api/ext/v1/sites/:id/banners`, `/api/ext/v1/toplist`) trả `image_url` dạng alias riêng từng site: `/wp-content/uploads/YYYY/MM/<slug>.<ext>` (hoặc `<pool-domain>/YYYY/MM/<slug>.<ext>` nếu site có image domain). Dùng `publicImageUrl(siteId, key, imageBase)` từ `utils/imageAlias.js`.
+- API phục vụ plugin (`/api/v2/site/:id/banners`, `/api/ext/v1/sites/:id/banners`, `/api/ext/v1/toplist`) trả `image_url` dạng alias riêng từng site: `/wp-content/uploads/<dir>/<slug>.<ext>` với `<dir>` giữ nguyên `banners|brands|toplist` (hoặc `<pool-domain>/<dir>/<slug>.<ext>` nếu site có image domain). Dùng `publicImageUrl(siteId, key, imageBase)` từ `utils/imageAlias.js`.
 - Admin UI và các route CRUD vẫn dùng `buildImageUrl(key)` với key gốc — KHÔNG đổi sang alias.
 - Proxy `/wp-content/uploads/*` (index.js) tra alias trước; khớp thì phục vụ biến thể byte riêng của site (`IMAGE_VARIANTS=off` để tắt), không khớp thì rơi về key gốc.
 - Alias tạo lười lần đầu site gọi API và lưu bền → URL ổn định cho cache/CDN. Xóa site thì alias xóa theo (cascade).
 - Ảnh brand toàn cục ở `/api/brands/urls`, `/api/ext/v1/brands` không thuộc site nào nên giữ key gốc (plugin chỉ dùng cho admin WP).
+- **RÀNG BUỘC PLUGIN:** plugin WP trên các site chỉ chuyển tiếp `/wp-content/uploads/(banners|brands|toplist)/<1 đoạn tên file>` (`plugin/seo1-adbanner/seo1-adbanner.php`). Alias KHÔNG được thêm cấp thư mục (vd `YYYY/MM/`) — sẽ 404 trên mọi site (sự cố 2026-10-10). Test `TƯƠNG THÍCH PLUGIN WP` đọc regex từ file plugin để chặn lỗi này.
 - Test: `npm test -w backend`.
 
 ---

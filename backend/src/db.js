@@ -222,6 +222,8 @@ runSafe(`
   )
 `);
 runSafe(`CREATE INDEX IF NOT EXISTS idx_image_aliases_key ON image_aliases(image_key)`);
+// Bỏ alias định dạng cũ YYYY/MM/slug (2 dấu '/') — plugin WP không chuyển tiếp được dạng này
+runSafe(`DELETE FROM image_aliases WHERE length(alias) - length(replace(alias, '/', '')) != 1`);
 
 // Index bổ sung cho query slot theo site (fix N+1 performance)
 runSafe(`CREATE INDEX IF NOT EXISTS idx_slots_site_placement ON slots(site_id, placement, position)`);
