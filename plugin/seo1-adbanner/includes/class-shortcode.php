@@ -40,33 +40,18 @@ final class SEO1_Shortcode
         );
 
         $settings = seo1_adbanner_settings();
-        $api_url  = SEO1_Remote_Config::get_api_url();
-        if (!$api_url) {
-            return self::error(__('SEO1 AdBanner: API URL is not configured.', 'seo1-adbanner'));
-        }
 
-        $site_id = seo1_adbanner_resolve_site_id((string) $atts['site']);
-        if (!$site_id) {
-            return self::error(__('SEO1 AdBanner: Site ID could not be determined.', 'seo1-adbanner'));
-        }
-
-        $host = wp_parse_url(home_url(), PHP_URL_HOST) ?? '';
-        $host = preg_replace('/^www\./i', '', $host);
-
-        $client    = new SEO1_API_Client($api_url, (int) $settings['cache_ttl'], (int) $settings['brand_cache_ttl']);
-        $site_data = $client->get_site_data($site_id, $host);
-        if (!$site_data) {
+        // Dữ liệu được đọc 1 lần/request và dùng chung cho mọi shortcode trên trang
+        $ctx = seo1_adbanner_context((string) $atts['site']);
+        if (!$ctx) {
             return defined('WP_DEBUG') && WP_DEBUG
                 ? self::error(__('SEO1 AdBanner: Could not fetch data from API.', 'seo1-adbanner'))
                 : '';
         }
 
-        $brand_urls      = $client->get_brand_urls();
-        $api_tracking    = isset($site_data['tracking_urls']) && is_array($site_data['tracking_urls'])
-                           ? $site_data['tracking_urls'] : [];
-        $manual_tracking = seo1_build_tracking_urls($brand_urls);
-        $tracking_urls   = array_merge($manual_tracking, $api_tracking);
-        $renderer        = new SEO1_Renderer((int) $settings['rotate_interval'], $tracking_urls);
+        $site_data  = $ctx['site_data'];
+        $brand_urls = $ctx['brand_urls'];
+        $renderer   = new SEO1_Renderer((int) $settings['rotate_interval'], $ctx['tracking_urls']);
         $placement     = sanitize_key((string) $atts['placement']);
 
         // Special placements: toplist and brands are not slot-based

@@ -9,6 +9,15 @@ defined('ABSPATH') || exit;
  */
 final class SEO1_Renderer
 {
+    /**
+     * Ảnh do JS điều khiển (slider nhân bản, catfish/banner xoay, popup ẩn) không được để
+     * plugin lazy-load bên ngoài (LiteSpeed, WP Rocket, Smush, EWWW...) thay src bằng data-src,
+     * nếu không bản nhân bản / ảnh được JS đổi sẽ trống. Vẫn giữ loading="lazy" gốc của trình duyệt.
+     * LiteSpeed Cache bỏ qua ảnh có class skip-lazy hoặc data-no-lazy / data-skip-lazy.
+     */
+    private const NO_LAZY = ' data-no-lazy="1" data-skip-lazy="1"';
+    private const NO_LAZY_CLASS = 'skip-lazy no-lazyload';
+
     private readonly int   $rotate_interval;
     private readonly array $tracking_urls;
     private string         $prefix;
@@ -36,14 +45,14 @@ final class SEO1_Renderer
         array  $brand_urls,
         array  $extra = [],
     ): string {
-        return match ($placement) {
+        return SEO1_Short_Links::finalize_html(match ($placement) {
             'catfish'      => $this->render_catfish($slots, $brand_urls),
             'button'       => $this->render_button($slots, $brand_urls, $extra),
             'popup'        => $this->render_popup($slots, $brand_urls, $extra),
             'slider'       => $this->render_slider($slots, $brand_urls),
             'brand-button' => $this->render_brand_button($slots, $brand_urls),
             default        => '',
-        };
+        });
     }
 
     /**
@@ -63,11 +72,7 @@ final class SEO1_Renderer
 
         foreach ($brands as $brand) {
             $brand_id = $brand['id'] ?? '';
-            if ($brand_id && !empty($this->tracking_urls[$brand_id])) {
-                $url = esc_url($this->tracking_urls[$brand_id]);
-            } else {
-                $url = esc_url($brand_urls[$brand_id] ?? '');
-            }
+            $url = esc_url($this->link($this->brand_url((string) $brand_id, $brand_urls), (string) $brand_id, $brand_urls));
             $img  = esc_url($brand['button_image'] ?? '');
             $name = esc_attr($brand['name'] ?? $brand_id);
 
@@ -77,7 +82,7 @@ final class SEO1_Renderer
 
             $html .= '<a href="' . $url . '" target="_blank" rel="noopener nofollow sponsored" aria-label="' . $name . '">';
             if ($img) {
-                $html .= '<img src="' . $img . '" alt="' . $name . '" loading="lazy" decoding="async">';
+                $html .= '<img src="' . $img . '" alt="' . $name . '" loading="lazy" decoding="async" width="120" height="120">';
             } else {
                 $html .= '<span>' . esc_html($brand['name'] ?? $brand_id) . '</span>';
             }
@@ -85,7 +90,7 @@ final class SEO1_Renderer
         }
 
         $html .= '</div>';
-        return $html;
+        return SEO1_Short_Links::finalize_html($html);
     }
 
     /**
@@ -102,17 +107,14 @@ final class SEO1_Renderer
 
         $p       = $this->prefix;
         $reviews = (array) get_option(SEO1_OPT_REVIEWS, []);
-        $html    = '<div class="' . esc_attr($p) . '_toplist" itemscope itemtype="https://schema.org/ItemList">';
+        $html    = '<div class="' . esc_attr($p) . '_toplist" itemscope itemtype="https://schema.org/ItemList">'
+                 . '<meta itemprop="numberOfItems" content="' . count($toplist) . '">';
 
         foreach ($toplist as $i => $entry) {
             $rank     = (int) ($entry['rank'] ?? ($i + 1));
             $brand_id = $entry['brand_id'] ?? '';
 
-            if ($brand_id && !empty($this->tracking_urls[$brand_id])) {
-                $url = esc_url($this->tracking_urls[$brand_id]);
-            } else {
-                $url = esc_url($brand_urls[$brand_id] ?? '');
-            }
+            $url = esc_url($this->link($this->brand_url((string) $brand_id, $brand_urls), (string) $brand_id, $brand_urls));
 
             $img  = esc_url($entry['image_url'] ?? '');
             $name = esc_html($entry['name'] ?? '');
@@ -136,7 +138,7 @@ final class SEO1_Renderer
             $feat1     = esc_html($rd['feature_1'] ?? '');
             $feat2     = esc_html($rd['feature_2'] ?? '');
 
-            $html .= '<div class="' . esc_attr($p) . '_toplist_item" itemscope itemtype="https://schema.org/ListItem">'
+            $html .= '<div class="' . esc_attr($p) . '_toplist_item" itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">'
                    . '<meta itemprop="position" content="' . $rank . '">';
 
             // Left block
@@ -202,7 +204,7 @@ final class SEO1_Renderer
         }
 
         $html .= '</div>';
-        return $html;
+        return SEO1_Short_Links::finalize_html($html);
     }
 
     // ── Placement renderers ────────────────────────────────────────────────────
@@ -221,6 +223,7 @@ final class SEO1_Renderer
         $p     = $this->prefix;
         $items = '';
         $count = 0;
+        seo1_adbanner_need_js();
 
         foreach ($slots as $slot) {
             $mode    = $slot['mode'] ?? 'fixed';
@@ -230,10 +233,24 @@ final class SEO1_Renderer
 
             if (empty($banners)) continue;
 
-            // Rotate mode: random pick from pool
-            $b = $mode === 'rotate'
-                ? $banners[array_rand($banners)]
-                : $banners[0];
+            // Rotate: server luôn in banner đầu (nhất quán với page cache),
+            // JS chọn ngẫu nhiên trong pool mỗi lượt xem → vẫn xoay khi trang được cache.
+            $b = $banners[0];
+            $pool_attr = '';
+            if ($mode === 'rotate' && count($banners) > 1) {
+                $pool = [];
+                foreach ($banners as $pb) {
+                    if (empty($pb['image_url'])) continue;
+                    $pool[] = [
+                        'image_url' => esc_url_raw((string) $pb['image_url']),
+                        'click_url' => esc_url_raw($this->resolve_click_url($pb, $brand_urls)),
+                        'title'     => wp_strip_all_tags((string) ($pb['title'] ?? $pb['brand_id'] ?? '')),
+                    ];
+                }
+                if (count($pool) > 1) {
+                    $pool_attr = ' data-seo1-pool="' . esc_attr(wp_json_encode($pool)) . '"';
+                }
+            }
 
             if (empty($b)) continue;
             $img = esc_url($b['image_url'] ?? '');
@@ -242,13 +259,20 @@ final class SEO1_Renderer
             $alt   = esc_attr($b['title'] ?? '') ?: esc_attr($b['brand_id'] ?? '');
             $click = $this->resolve_click_url($b, $brand_urls);
 
-            $items .= '<div class="' . esc_attr($p) . '_catfish_item">';
-            if ($click) {
-                $items .= '<a href="' . esc_url($click) . '" target="_blank" rel="noopener nofollow sponsored">'
-                        . '<img src="' . $img . '" alt="' . $alt . '" loading="eager" decoding="async">'
-                        . '</a>';
+            if ($pool_attr !== '') {
+                // Banner xoay: KHÔNG in src thật. Script inline ngay sau catfish chọn ngẫu nhiên
+                // trước khi ảnh được tải → chỉ tải 1 ảnh, không đổi ảnh sau khi đã hiện
+                // (đổi ảnh muộn làm LCP bị tính lại rất trễ).
+                $tag = '<img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="" class="' . self::NO_LAZY_CLASS . '" decoding="async"' . $this->dims($b) . self::NO_LAZY . '>'
+                     . '<noscript><img src="' . $img . '" alt="' . $alt . '"' . $this->dims($b) . '></noscript>';
             } else {
-                $items .= '<img src="' . $img . '" alt="' . $alt . '" loading="eager" decoding="async">';
+                $tag = '<img src="' . $img . '" alt="' . $alt . '" class="' . self::NO_LAZY_CLASS . '" loading="eager" decoding="async"' . $this->dims($b) . self::NO_LAZY . '>';
+            }
+            $items .= '<div class="' . esc_attr($p) . '_catfish_item"' . $pool_attr . '>';
+            if ($click) {
+                $items .= '<a href="' . esc_url($click) . '" target="_blank" rel="noopener nofollow sponsored">' . $tag . '</a>';
+            } else {
+                $items .= $tag;
             }
             $items .= '</div>';
             $count++;
@@ -262,14 +286,31 @@ final class SEO1_Renderer
         $cols       = $count >= 2 ? 2 : 1;
         $grid_style = 'grid-template-columns:repeat(' . $cols . ',1fr)';
 
-        return '<div class="' . esc_attr($p) . '_catfish" id="seo1-catfish" role="complementary">'
+        return '<div class="' . esc_attr($p) . '_catfish" id="seo1-catfish" role="complementary" data-seo1-prefix="' . esc_attr($p) . '">'
              . '<div class="' . esc_attr($p) . '_catfish_bar">'
              . '<button class="' . esc_attr($p) . '_catfish_close" type="button">&#10005; ' . esc_html__('Đóng', 'seo1-adbanner') . '</button>'
              . '<div class="' . esc_attr($p) . '_catfish_grid" style="' . $grid_style . '">'
              . $items
              . '</div>'
              . '</div>'
-             . '</div>';
+             . '</div>'
+             . (str_contains($items, 'data-seo1-pool') ? self::catfish_pick_script() : '');
+    }
+
+    /**
+     * Script inline nhỏ, chạy ngay khi trình duyệt đọc tới (không bị LiteSpeed/WP Rocket/Cloudflare
+     * trì hoãn): chọn ngẫu nhiên 1 banner trong pool cho mỗi ô catfish xoay.
+     */
+    private static function catfish_pick_script(): string
+    {
+        return '<script data-no-optimize="1" data-no-defer="1" data-no-minify="1" data-cfasync="false">'
+             . '(function(){var c=document.getElementById("seo1-catfish");if(!c)return;'
+             . 'c.querySelectorAll("[data-seo1-pool]").forEach(function(t){try{'
+             . 'var p=JSON.parse(t.getAttribute("data-seo1-pool")||"[]");if(!p.length)return;'
+             . 'var b=p[Math.floor(Math.random()*p.length)],i=t.querySelector("img"),a=t.querySelector("a");'
+             . 'if(i&&b.image_url){i.src=b.image_url;i.alt=b.title||"";}if(a&&b.click_url){var m=/[?&]seo1sl=([a-z0-9_-]+)$/.exec(b.click_url);'
+             . 'if(m){a.href=b.click_url.slice(0,m.index);a.setAttribute("data-sl",m[1]);}else{a.href=b.click_url;a.removeAttribute("data-sl");}}'
+             . '}catch(e){}});})();</script>';
     }
 
     /**
@@ -290,20 +331,22 @@ final class SEO1_Renderer
             return '';
         }
 
+        seo1_adbanner_need_js();
+
         $items = '';
         foreach ($all_banners as $banner) {
             $img   = esc_url($banner['image_url'] ?? '');
-            $alt   = esc_attr($banner['title'] ?? '') ?: esc_attr($banner['brand_id'] ?? '');
+            $alt   = esc_attr($banner['title'] ?? '') ?: esc_attr('Logo ' . ($banner['brand_id'] ?? ''));
             $click = $this->resolve_click_url($banner, $brand_urls);
             if (!$img) continue;
 
             $items .= '<div class="' . esc_attr($p) . '_slider_item">';
             if ($click) {
                 $items .= '<a href="' . esc_url($click) . '" target="_blank" rel="noopener nofollow sponsored">'
-                        . '<img src="' . $img . '" alt="' . $alt . '" loading="lazy" decoding="async" width="80" height="80">'
+                        . '<img src="' . $img . '" alt="' . $alt . '" class="' . self::NO_LAZY_CLASS . '" loading="lazy" decoding="async" width="80" height="80"' . self::NO_LAZY . '>'
                         . '</a>';
             } else {
-                $items .= '<img src="' . $img . '" alt="' . $alt . '" loading="lazy" decoding="async" width="80" height="80">';
+                $items .= '<img src="' . $img . '" alt="' . $alt . '" class="' . self::NO_LAZY_CLASS . '" loading="lazy" decoding="async" width="80" height="80"' . self::NO_LAZY . '>';
             }
             $items .= '</div>';
         }
@@ -312,14 +355,12 @@ final class SEO1_Renderer
             return '';
         }
 
-        return '<div class="' . esc_attr($p) . '_slider_wrap">'
-             . '<button class="' . esc_attr($p) . '_slider_btn ' . esc_attr($p) . '_slider_prev" type="button" aria-label="Previous"></button>'
+        return '<div class="' . esc_attr($p) . '_slider_wrap" data-seo1-prefix="' . esc_attr($p) . '" role="region" aria-label="' . esc_attr__('Đối tác', 'seo1-adbanner') . '">'
              . '<div class="' . esc_attr($p) . '_slider_viewport">'
              . '<div class="' . esc_attr($p) . '_slider_track">'
              . $items
              . '</div>'
              . '</div>'
-             . '<button class="' . esc_attr($p) . '_slider_btn ' . esc_attr($p) . '_slider_next" type="button" aria-label="Next"></button>'
              . '</div>';
     }
 
@@ -345,15 +386,16 @@ final class SEO1_Renderer
             } elseif (!empty($brand_urls[$brand_override])) {
                 $click = (string) $brand_urls[$brand_override];
             }
+            $click = $this->link($click, $brand_override, $brand_urls);
             if ($click) {
                 // btn1 = type "login" (or first), btn2 = type "register" (or second)
                 $btn_num      = $type_override === 'register' ? 2 : 1;
                 $slot_key     = $btn_num === 1 ? 'btn1' : 'btn2';
                 $plugin_style = $btn_styles_opt[$slot_key] ?? $btn_styles_opt[$slot_key === 'btn1' ? 'login' : 'register'] ?? [];
                 $preset_num   = (int) ($plugin_style['style'] ?? $btn_num);
-                $style_num    = $preset_num >= 1 && $preset_num <= 8 ? $preset_num : $btn_num;
+                $style_num    = $preset_num >= 1 && $preset_num <= 14 ? $preset_num : $btn_num;
                 $default_lbl  = $btn_num === 1 ? 'Cược Ngay' : 'Xem Bóng Đá';
-                $label        = esc_html($plugin_style['label'] ?: $default_lbl);
+                $label        = esc_html(($plugin_style['label'] ?? '') ?: $default_lbl);
                 $size         = intval($cfg['font_size']);
                 $weight       = intval($cfg['font_weight']);
                 $radius       = intval($cfg['border_radius']);
@@ -376,19 +418,20 @@ final class SEO1_Renderer
                 if (!$click) $click = (string) ($slot['click_url'] ?? '');
                 if (!$click && $brand_id) $click = (string) ($brand_urls[$brand_id] ?? '');
                 if (!$click) continue;
+                $click = $this->link($click, $brand_id, $brand_urls);
 
                 // btn1 / btn2 keys (new), fallback to old login/register keys
                 $btn_num      = $slot_index === 0 ? 1 : 2;
                 $slot_key     = 'btn' . $btn_num;
                 $plugin_style = $btn_styles_opt[$slot_key] ?? $btn_styles_opt[$btn_num === 1 ? 'login' : 'register'] ?? [];
                 $preset_num   = (int) ($plugin_style['style'] ?? $btn_num);
-                $style_num    = $preset_num >= 1 && $preset_num <= 8 ? $preset_num : $btn_num;
+                $style_num    = $preset_num >= 1 && $preset_num <= 14 ? $preset_num : $btn_num;
 
                 $size   = intval($slot_style['fontSize']     ?? $cfg['font_size']);
                 $weight = intval($slot_style['fontWeight']   ?? $cfg['font_weight']);
                 $radius = intval($slot_style['borderRadius'] ?? $cfg['border_radius']);
                 $default_lbl  = $btn_num === 1 ? 'Cược Ngay' : 'Xem Bóng Đá';
-                $label        = esc_html($plugin_style['label'] ?: ($slot_style['label'] ?? $default_lbl));
+                $label        = esc_html(($plugin_style['label'] ?? '') ?: ($slot_style['label'] ?? $default_lbl));
 
                 $html .= '<a href="' . esc_url($click) . '" class="' . esc_attr($p . '_btn ' . $p . '_btn_' . $style_num) . '"'
                        . ' target="_blank" rel="noopener nofollow sponsored"'
@@ -422,12 +465,13 @@ final class SEO1_Renderer
         if (!$inner) {
             return '';
         }
+        seo1_adbanner_need_js();
 
         $cfg       = self::placement_defaults()['popup'];
         $delay     = intval($extra['delay'] ?? $cfg['delay'] ?? 3);
         $frequency = esc_attr($cfg['frequency']);
 
-        return '<div class="' . esc_attr($p) . '_popup" id="seo1-popup"'
+        return '<div class="' . esc_attr($p) . '_popup" id="seo1-popup" data-seo1-prefix="' . esc_attr($p) . '"'
              . ' role="dialog" aria-modal="true" aria-label="' . esc_attr__('Quảng cáo', 'seo1-adbanner') . '"'
              . ' data-delay="' . $delay . '"'
              . ' data-frequency="' . $frequency . '"'
@@ -463,6 +507,7 @@ final class SEO1_Renderer
             if (!$click && $brand_id) {
                 $click = (string) ($brand_urls[$brand_id] ?? '');
             }
+            $click = $this->link($click, $brand_id, $brand_urls);
 
             if ($mode === 'rotate') {
                 $banners = (array) ($slot['banners'] ?? []);
@@ -473,7 +518,7 @@ final class SEO1_Renderer
                     if (!$href) continue;
                     $alt_btn = esc_attr($b['title'] ?? '') ?: esc_attr($brand_id);
                     $items[] = '<a href="' . esc_url($href) . '" target="_blank" rel="noopener nofollow sponsored" class="' . esc_attr($p) . '_brand_btn_item">'
-                             . '<img src="' . $img . '" alt="' . $alt_btn . '" loading="lazy" decoding="async">'
+                             . '<img src="' . $img . '" alt="' . $alt_btn . '" loading="lazy" decoding="async"' . $this->dims($b) . '>'
                              . '</a>';
                 }
             } else {
@@ -485,7 +530,7 @@ final class SEO1_Renderer
                 if (!$href) continue;
                 $alt_btn = esc_attr($b['title'] ?? '') ?: esc_attr($brand_id);
                 $items[] = '<a href="' . esc_url($href) . '" target="_blank" rel="noopener nofollow sponsored" class="' . esc_attr($p) . '_brand_btn_item">'
-                         . '<img src="' . $img . '" alt="' . $alt_btn . '" loading="lazy" decoding="async">'
+                         . '<img src="' . $img . '" alt="' . $alt_btn . '" loading="lazy" decoding="async"' . $this->dims($b) . '>'
                          . '</a>';
             }
         }
@@ -532,7 +577,7 @@ final class SEO1_Renderer
             return '';
         }
 
-        $inner = '<img src="' . $img . '" alt="' . $alt . '" loading="lazy" decoding="async" class="' . esc_attr($class) . '">';
+        $inner = '<img src="' . $img . '" alt="' . $alt . '" loading="lazy" decoding="async"' . $this->dims($banner) . ' class="' . esc_attr($class) . ' ' . self::NO_LAZY_CLASS . '"' . self::NO_LAZY . '>';
 
         if ($click) {
             return '<a href="' . esc_url($click) . '" target="_blank" rel="noopener nofollow sponsored">' . $inner . '</a>';
@@ -563,12 +608,13 @@ final class SEO1_Renderer
         }, $banners);
 
         $data_json = esc_attr(wp_json_encode($json_banners));
+        seo1_adbanner_need_js();
 
         $html  = '<div data-seo1-rotate="1" data-banners="' . $data_json . '" data-interval="' . intval($this->rotate_interval) . '">';
         if ($click) {
             $html .= '<a href="' . esc_url($click) . '" target="_blank" rel="noopener nofollow sponsored" class="seo1-rotate-link">';
         }
-        $html .= '<img src="' . $img . '" alt="' . $alt . '" loading="lazy" decoding="async" class="' . esc_attr($class) . '">';
+        $html .= '<img src="' . $img . '" alt="' . $alt . '" loading="lazy" decoding="async"' . $this->dims($first) . ' class="' . esc_attr($class) . ' ' . self::NO_LAZY_CLASS . '"' . self::NO_LAZY . '>';
         if ($click) {
             $html .= '</a>';
         }
@@ -577,7 +623,14 @@ final class SEO1_Renderer
         return $html;
     }
 
+    /** Link click của banner, đã rút gọn nếu bật tính năng link rút gọn. */
     private function resolve_click_url(array $banner, array $brand_urls): string
+    {
+        $brand_id = (string) ($banner['brand_id'] ?? '');
+        return $this->link($this->resolve_raw_click_url($banner, $brand_urls), $brand_id, $brand_urls);
+    }
+
+    private function resolve_raw_click_url(array $banner, array $brand_urls): string
     {
         $brand_id = $banner['brand_id'] ?? '';
         if ($brand_id && !empty($this->tracking_urls[$brand_id])) {
@@ -590,6 +643,41 @@ final class SEO1_Renderer
             return (string) $brand_urls[$brand_id];
         }
         return '';
+    }
+
+    /** Link cấp brand: tracking (thủ công/API) > link brand. */
+    private function brand_url(string $brand_id, array $brand_urls): string
+    {
+        if ($brand_id === '') {
+            return '';
+        }
+        if (!empty($this->tracking_urls[$brand_id])) {
+            return (string) $this->tracking_urls[$brand_id];
+        }
+        return (string) ($brand_urls[$brand_id] ?? '');
+    }
+
+    /**
+     * Đổi link thật thành https://domain.com/trackinglink/<slug> (nếu bật).
+     * Link trùng link cấp brand → slug = brand_id, đích tính lại mỗi lượt bấm.
+     */
+    private function link(string $url, string $brand_id, array $brand_urls): string
+    {
+        if ($url === '') {
+            return '';
+        }
+        $brand_level = $brand_id !== '' && $url === $this->brand_url($brand_id, $brand_urls);
+        return SEO1_Short_Links::shorten($url, $brand_id, $brand_level);
+    }
+
+    /**
+     * width/height cho ảnh nếu API trả về kích thước (chống CLS).
+     */
+    private function dims(array $banner): string
+    {
+        $w = (int) ($banner['width'] ?? $banner['image_width'] ?? 0);
+        $h = (int) ($banner['height'] ?? $banner['image_height'] ?? 0);
+        return ($w > 0 && $h > 0) ? ' width="' . $w . '" height="' . $h . '"' : '';
     }
 
     private function get_banners_from_slot(array $slot): array

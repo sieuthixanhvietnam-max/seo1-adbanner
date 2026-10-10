@@ -4,26 +4,44 @@ defined('ABSPATH') || exit;
 
 final class SEO1_CSS {
 
-    /** Default appearance values — matched in seo1_adbanner_appearance(). */
-    private const APPEARANCE_DEFAULTS = [
-        'slider_bg'         => '#ffffff',
-        'slider_radius'     => 12,
-        'slider_logo_desk'  => 100,
-        'slider_logo_mob'   => 72,
-        'slider_gap'        => 8,
-        'slider_shadow'     => true,
-        'catfish_width'     => '70%',
-        'catfish_height'    => 50,
-        'catfish_height_mob'=> 42,
-        'catfish_bg'        => 'transparent',
-        'catfish_cols'      => 2,
-        'catfish_close_bg'  => '#dc2626',
-        'catfish_z'         => 9990,
+    /**
+     * Giá trị mặc định duy nhất cho cài đặt giao diện (dùng chung với seo1_adbanner_appearance()).
+     * Lưu ý: hiện CSS chỉ áp dụng catfish_width, catfish_close_bg, catfish_z — các giá trị
+     * slider_* / catfish_height* / catfish_bg / catfish_cols chưa được nối vào CSS
+     * (giữ nguyên giao diện hiện tại của các site).
+     */
+    public const APPEARANCE_DEFAULTS = [
+        'slider_bg'          => '#ffffff',
+        'slider_radius'      => 12,
+        'slider_logo_desk'   => 90,
+        'slider_logo_mob'    => 64,
+        'slider_gap'         => 8,
+        'slider_shadow'      => true,
+        'catfish_width'      => '65%',
+        'catfish_height'     => 50,
+        'catfish_height_mob' => 42,
+        'catfish_bg'         => 'transparent',
+        'catfish_cols'       => 2,
+        'catfish_close_bg'   => '#dc2626',
+        'catfish_z'          => 9990,
     ];
 
     /**
+     * CSS đã minify (bỏ comment, khoảng trắng thừa).
+     *
+     * @param array<string,mixed> $appearance
+     */
+    public static function get_min(string $prefix, array $appearance = []): string {
+        $css = self::get($prefix, $appearance);
+        $css = (string) preg_replace('#/\*.*?\*/#s', '', $css);
+        $css = (string) preg_replace('/\s+/', ' ', $css);
+        $css = (string) preg_replace('/\s*([{};:,>])\s*/', '$1', $css);
+        $css = str_replace(';}', '}', $css);
+        return trim($css);
+    }
+
+    /**
      * Generate all placement CSS with the given prefix and optional appearance overrides.
-     * Called once per page load, output via wp_add_inline_style.
      *
      * @param array<string,mixed> $appearance
      */
@@ -33,21 +51,11 @@ final class SEO1_CSS {
 
         $a = array_merge(self::APPEARANCE_DEFAULTS, $appearance);
 
-        $slider_bg        = esc_attr($a['slider_bg']);
-        $slider_radius    = (int) $a['slider_radius'];
-        $slider_logo_desk = (int) $a['slider_logo_desk'];
-        $slider_logo_mob  = (int) $a['slider_logo_mob'];
-        $slider_gap       = (int) $a['slider_gap'];
-        $slider_shadow    = !empty($a['slider_shadow']) ? '0 2px 12px rgba(0,0,0,.08)' : 'none';
-        $catfish_width    = esc_attr($a['catfish_width'] ?? '65%');
-        $catfish_height   = (int) $a['catfish_height'];
-        $catfish_h_mob    = (int) $a['catfish_height_mob'];
-        $catfish_bg       = esc_attr($a['catfish_bg']);
-        $catfish_cols     = max(1, min(2, (int) $a['catfish_cols']));
-        $catfish_close_bg = esc_attr($a['catfish_close_bg']);
+        // Chỉ cho phép giá trị width dạng số + đơn vị (chống chèn CSS)
+        $catfish_width    = preg_match('/^\d{1,4}(\.\d+)?(%|px|vw|rem|em)$/', (string) $a['catfish_width'])
+                            ? (string) $a['catfish_width'] : '65%';
+        $catfish_close_bg = sanitize_hex_color((string) $a['catfish_close_bg']) ?: '#dc2626';
         $catfish_z        = (int) $a['catfish_z'];
-        $slider_pad_side  = $slider_logo_desk + 18;
-        $slider_pad_mob   = $slider_logo_mob  + 14;
 
         return <<<CSS
 /* SEO1 Ad Banner — generated CSS, prefix: {$p} */
@@ -136,8 +144,7 @@ final class SEO1_CSS {
 .{$p}_catfish_item a:hover { opacity: .88; }
 .{$p}_catfish_item img {
     width: 100%;
-    height: 56px;
-    object-fit: cover;
+    height: auto;
     display: block;
 }
 @media (max-width:1024px) {
@@ -151,10 +158,9 @@ final class SEO1_CSS {
         animation: {$p}_slide_up_full 0.32s cubic-bezier(.22,.68,0,1.2) both;
     }
     .{$p}_catfish_grid { grid-template-columns: 1fr !important; }
-    .{$p}_catfish_item img { height: {$catfish_h_mob}px; }
 }
 @media (max-width:480px) {
-    .{$p}_catfish_item img { height: 40px; }
+    .{$p}_catfish_item img { max-height: 60px; }
 }
 
 /* ── Slider (marquee) ── */
@@ -180,7 +186,10 @@ final class SEO1_CSS {
     gap: 12px;
     width: max-content;
     will-change: transform;
-    /* animation set by JS sau khi clone đủ số lượng */
+    /* Animation khai báo tĩnh trong CSS (để LiteSpeed UCSS không xoá @keyframes).
+       Dừng sẵn; JS nhân bản logo, đặt --seo1-dur rồi cho chạy bằng inline style. */
+    animation: {$p}_marquee var(--seo1-dur, 30s) linear infinite;
+    animation-play-state: paused;
 }
 /* pause khi hover qua CSS (JS cũng set, cả 2 để đảm bảo) */
 .{$p}_slider_viewport:hover .{$p}_slider_track {
@@ -205,7 +214,6 @@ final class SEO1_CSS {
     transition: transform .2s ease;
 }
 .{$p}_slider_item a:hover img { transform: scale(1.06); }
-.{$p}_slider_btn { display: none; }
 @media (max-width:767px) {
     .{$p}_slider_item { width: 60px; }
     .{$p}_slider_item img { width: 60px; height: 60px; }
@@ -486,21 +494,19 @@ final class SEO1_CSS {
 
 /* ── Button ── */
 .{$p}_btns {
-    display: flex !important;
-    flex-wrap: nowrap !important;
-    gap: 8px !important;
-    width: 100% !important;
-    margin: 10px 0 !important;
-    box-sizing: border-box !important;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    width: 100%;
+    margin: 10px 0;
 }
 .{$p}_btn {
-    flex: 1 1 0% !important;
-    min-width: 0 !important;
-    display: flex !important;
+    flex: 1 1 auto;
+    display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
-    padding: 10px 12px !important;
-    min-height: 44px !important;
+    padding: 0 20px !important;
+    height: 44px !important;
     font-weight: 700 !important;
     font-size: 14px !important;
     text-decoration: none !important;
@@ -509,22 +515,15 @@ final class SEO1_CSS {
     border-radius: 8px !important;
     transition: opacity .18s, transform .15s, box-shadow .18s !important;
     overflow: hidden !important;
+    white-space: nowrap !important;
     font-family: inherit !important;
-    position: relative !important;
+    position: relative;
     letter-spacing: .02em !important;
-    box-sizing: border-box !important;
-    text-align: center !important;
 }
 .{$p}_btn > span {
-    display: -webkit-box !important;
-    -webkit-line-clamp: 2 !important;
-    -webkit-box-orient: vertical !important;
-    overflow: hidden !important;
-    white-space: normal !important;
-    word-break: break-word !important;
-    text-align: center !important;
-    line-height: 1.3 !important;
-    max-height: 2.6em !important;
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
 }
 .{$p}_btn:hover {
     opacity: .88 !important;
@@ -549,7 +548,14 @@ final class SEO1_CSS {
 .{$p}_btn_5::after { display:none; }
 .{$p}_btn_6 { background:linear-gradient(135deg,#7c3aed,#6d28d9) !important;color:#fff !important;box-shadow:0 3px 10px rgba(124,58,237,.3) !important; }
 .{$p}_btn_7 { background:linear-gradient(135deg,#ea580c,#c2410c) !important;color:#fff !important;box-shadow:0 3px 10px rgba(234,88,12,.3) !important; }
-.{$p}_btn_8 { background:linear-gradient(135deg,#2563eb,#1d4ed8) !important;color:#fff !important;box-shadow:0 3px 10px rgba(37,99,235,.3) !important; }
+.{$p}_btn_8  { background:linear-gradient(135deg,#2563eb,#1d4ed8) !important;color:#fff !important;box-shadow:0 3px 10px rgba(37,99,235,.3) !important; }
+.{$p}_btn_9  { background:linear-gradient(135deg,#b45309,#92400e) !important;color:#fff !important;box-shadow:0 3px 10px rgba(180,83,9,.3) !important; }
+.{$p}_btn_10 { background:linear-gradient(135deg,#78350f,#451a03) !important;color:#fff !important; }
+.{$p}_btn_11 { background:linear-gradient(135deg,#d4af37,#b8960c) !important;color:#1a1200 !important;box-shadow:0 3px 10px rgba(212,175,55,.35) !important; }
+.{$p}_btn_12 { background:linear-gradient(135deg,#064e3b,#065f46) !important;color:#fff !important; }
+.{$p}_btn_13 { background:linear-gradient(135deg,#be185d,#9d174d) !important;color:#fff !important;box-shadow:0 3px 10px rgba(190,24,93,.3) !important; }
+.{$p}_btn_14 { background:transparent !important;border:2px solid #9ca3af !important;color:#6b7280 !important; }
+.{$p}_btn_14::after { display:none; }
 @media (max-width:360px) {
     .{$p}_btns { flex-direction: column !important; }
     .{$p}_btn { width: 100% !important; flex: none !important; }
@@ -659,6 +665,13 @@ final class SEO1_CSS {
     height: auto;
     display: block;
     border-radius: 8px;
+}
+
+/* ── Người dùng bật "giảm chuyển động": dừng marquee, shimmer, animation ── */
+@media (prefers-reduced-motion: reduce) {
+    .{$p}_slider_track { animation: none !important; transform: none !important; flex-wrap: wrap; width: auto; justify-content: center; }
+    .{$p}_btn::after,.{$p}_toplist_cta::after { animation: none !important; display: none; }
+    .{$p}_catfish,.{$p}_popup.active,.{$p}_popup_inner { animation: none !important; }
 }
 CSS;
     }

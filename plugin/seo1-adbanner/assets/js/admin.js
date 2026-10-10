@@ -10,12 +10,18 @@
     5: { bg: 'transparent',                             color: '#2271b1', border: '#2271b1'      },
     6: { bg: 'linear-gradient(135deg,#7c3aed,#6d28d9)', color: '#fff',    border: 'transparent' },
     7: { bg: 'linear-gradient(135deg,#ea580c,#c2410c)', color: '#fff',    border: 'transparent' },
-    8: { bg: 'linear-gradient(135deg,#2563eb,#1d4ed8)', color: '#fff',    border: 'transparent' },
+    8:  { bg: 'linear-gradient(135deg,#2563eb,#1d4ed8)', color: '#fff',    border: 'transparent' },
+    9:  { bg: 'linear-gradient(135deg,#b45309,#92400e)', color: '#fff',    border: 'transparent' },
+    10: { bg: 'linear-gradient(135deg,#78350f,#451a03)', color: '#fff',    border: 'transparent' },
+    11: { bg: 'linear-gradient(135deg,#d4af37,#b8960c)', color: '#1a1200', border: 'transparent' },
+    12: { bg: 'linear-gradient(135deg,#064e3b,#065f46)', color: '#fff',    border: 'transparent' },
+    13: { bg: 'linear-gradient(135deg,#be185d,#9d174d)', color: '#fff',    border: 'transparent' },
+    14: { bg: 'transparent',                             color: '#6b7280', border: '#9ca3af'      },
   };
 
-  /* ── Section nav: smooth scroll ──────────────────────────────────────────── */
-  function initSectionNav() {
-    document.querySelectorAll('.seo1-section-nav-link').forEach(function (link) {
+  /* ── Jump nav: smooth scroll + active highlight ─────────────────────────────── */
+  function initJumpNav() {
+    document.querySelectorAll('.seo1-jump-link').forEach(function (link) {
       link.addEventListener('click', function (e) {
         var href = link.getAttribute('href');
         if (!href || href.charAt(0) !== '#') return;
@@ -23,38 +29,38 @@
         if (!target) return;
         e.preventDefault();
         target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        // Highlight active for a moment
-        document.querySelectorAll('.seo1-section-nav-link').forEach(function (l) {
-          l.classList.remove('seo1-section-nav-link--active');
+        document.querySelectorAll('.seo1-jump-link').forEach(function (l) {
+          l.classList.remove('seo1-jump-link--active');
         });
-        link.classList.add('seo1-section-nav-link--active');
+        link.classList.add('seo1-jump-link--active');
         setTimeout(function () {
-          link.classList.remove('seo1-section-nav-link--active');
-        }, 1200);
+          link.classList.remove('seo1-jump-link--active');
+        }, 1400);
       });
     });
   }
 
-  /* ── CTA: style swatch change ─────────────────────────────────────────────── */
+  /* ── CTA: style swatch change ───────────────────────────────────────────────── */
   function initStyleSwatches() {
     document.querySelectorAll('.seo1-style-radio').forEach(function (radio) {
       radio.addEventListener('change', function () {
         if (!radio.checked) return;
-        var slot  = radio.dataset.slot;
-        var val   = parseInt(radio.value, 10);
-        var c     = SEO1_STYLE_COLORS[val] || SEO1_STYLE_COLORS[1];
-        var live  = document.getElementById('seo1-cta-live-' + slot);
+        var slot = radio.dataset.slot;
+        var val  = parseInt(radio.value, 10);
+        var c    = SEO1_STYLE_COLORS[val] || SEO1_STYLE_COLORS[1];
+        var live = document.getElementById('seo1-cta-live-' + slot);
         if (!live) return;
         var btn = live.querySelector('.seo1-preview-btn');
         if (!btn) return;
-        btn.style.background   = c.bg;
-        btn.style.color        = c.color;
-        btn.style.borderColor  = c.border;
+        btn.style.background  = c.bg;
+        btn.style.color       = c.color;
+        btn.style.borderColor = c.border !== 'transparent' ? c.border : '';
+        btn.style.border      = c.border !== 'transparent' ? '2px solid ' + c.border : '';
       });
     });
   }
 
-  /* ── CTA: label input change ──────────────────────────────────────────────── */
+  /* ── CTA: label input live preview ─────────────────────────────────────────── */
   function initLabelInputs() {
     document.querySelectorAll('.seo1-cta-label-input').forEach(function (input) {
       input.addEventListener('input', function () {
@@ -68,7 +74,7 @@
     });
   }
 
-  /* ── Tracking: live preview ───────────────────────────────────────────────── */
+  /* ── Tracking: live preview URL ─────────────────────────────────────────────── */
   function initTrackingPreviews() {
     document.querySelectorAll('[data-tracking-preview]').forEach(function (input) {
       input.addEventListener('input', function () {
@@ -84,7 +90,7 @@
     });
   }
 
-  /* ── CTA: icon radio picker ───────────────────────────────────────────────── */
+  /* ── Icon picker (CTA) ──────────────────────────────────────────────────────── */
   function initIconPickers() {
     document.querySelectorAll('.seo1-icon-radio').forEach(function (radio) {
       radio.addEventListener('change', function () {
@@ -100,7 +106,7 @@
     });
   }
 
-  /* ── Copy shortcode buttons ───────────────────────────────────────────────── */
+  /* ── Copy buttons ───────────────────────────────────────────────────────────── */
   function initCopyButtons() {
     document.querySelectorAll('.seo1-copy-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -108,7 +114,7 @@
         if (!navigator.clipboard) return;
         navigator.clipboard.writeText(text).then(function () {
           var orig = btn.textContent;
-          btn.textContent = 'Đã sao chép!';
+          btn.textContent = 'Đã sao chép';
           btn.classList.add('copied');
           setTimeout(function () {
             btn.textContent = orig;
@@ -119,26 +125,19 @@
     });
   }
 
-  /* ── Reviews: accordion toggle ───────────────────────────────────────────── */
+  /* ── Reviews accordion ──────────────────────────────────────────────────────── */
   function initReviewAccordion() {
-    // Per-brand toggle
     document.querySelectorAll('.seo1-rv-trigger').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var expanded = btn.getAttribute('aria-expanded') === 'true';
         var bodyId   = btn.getAttribute('aria-controls');
         var body     = bodyId ? document.getElementById(bodyId) : null;
         if (!body) return;
-        if (expanded) {
-          btn.setAttribute('aria-expanded', 'false');
-          body.hidden = true;
-        } else {
-          btn.setAttribute('aria-expanded', 'true');
-          body.hidden = false;
-        }
+        btn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+        body.hidden = expanded;
       });
     });
 
-    // Expand / collapse all
     var expandAllBtn = document.querySelector('.seo1-rv-expand-all');
     if (expandAllBtn) {
       var allOpen = false;
@@ -158,11 +157,10 @@
     }
   }
 
-  /* ── Appearance: live preview ────────────────────────────────────────────── */
+  /* ── Appearance live preview ────────────────────────────────────────────────── */
   function initAppearancePreviews() {
-    // Slider controls
     document.querySelectorAll('.seo1-ap-input').forEach(function (el) {
-      el.addEventListener('input', handleAppearanceInput);
+      el.addEventListener('input',  handleAppearanceInput);
       el.addEventListener('change', handleAppearanceInput);
     });
     document.querySelectorAll('.seo1-ap-check').forEach(function (el) {
@@ -178,14 +176,13 @@
       var prop   = el.dataset.apProp;
       var val    = el.value;
 
-      // Sync color text box
       if (el.type === 'color') {
         var textEl = el.nextElementSibling;
         if (textEl && textEl.type === 'text') textEl.value = val;
       }
 
-      // Update range display
-      var valDisp = document.querySelector('[data-ap-for="' + el.name.replace('appearance[','').replace(']','') + '"]');
+      var key     = (el.name || '').replace('appearance[', '').replace(']', '');
+      var valDisp = document.querySelector('[data-ap-for="' + key + '"]');
       if (valDisp) valDisp.textContent = val + 'px';
 
       if (!target || !prop) return;
@@ -196,9 +193,9 @@
       if (target === 'slider-wrap') {
         var wrap = document.getElementById('seo1-slider-preview-wrap');
         if (!wrap) return;
-        if (prop === 'background') wrap.style.background = val;
-        if (prop === 'borderRadius') wrap.style.borderRadius = val + 'px';
-        if (prop === 'boxShadow') wrap.style.boxShadow = val;
+        if (prop === 'background')   wrap.style.background    = val;
+        if (prop === 'borderRadius') wrap.style.borderRadius  = val + 'px';
+        if (prop === 'boxShadow')    wrap.style.boxShadow     = val;
       }
       if (target === 'slider-track') {
         var track = document.getElementById('seo1-slider-preview-track');
@@ -206,8 +203,7 @@
         if (prop === 'gap') track.style.gap = val + 'px';
       }
       if (target === 'slider-logo') {
-        var logos = document.querySelectorAll('.seo1-slider-preview-item');
-        logos.forEach(function (logo) {
+        document.querySelectorAll('.seo1-slider-preview-item').forEach(function (logo) {
           logo.style.width  = val + 'px';
           logo.style.height = val + 'px';
         });
@@ -216,11 +212,10 @@
         var bar = document.getElementById('seo1-catfish-preview-bar');
         if (!bar) return;
         if (prop === 'background') bar.style.background = val === 'transparent' ? '#000' : val;
-        if (prop === 'width') bar.style.width = val;
+        if (prop === 'width')      bar.style.width = val;
       }
       if (target === 'catfish-img') {
-        var imgs = document.querySelectorAll('.seo1-catfish-preview-cell');
-        imgs.forEach(function (img) {
+        document.querySelectorAll('.seo1-catfish-preview-cell').forEach(function (img) {
           if (prop === 'height') img.style.height = val + 'px';
         });
       }
@@ -234,17 +229,16 @@
         if (!grid) return;
         if (prop === 'columns') {
           grid.style.gridTemplateColumns = 'repeat(' + val + ', 1fr)';
-          // rebuild cells
-          var cells = grid.querySelectorAll('.seo1-catfish-preview-cell');
-          var count = parseInt(val, 10);
-          // remove excess
+          var cells    = grid.querySelectorAll('.seo1-catfish-preview-cell');
+          var count    = parseInt(val, 10);
           for (var i = count; i < cells.length; i++) cells[i].remove();
-          // add missing
           var existing = grid.querySelectorAll('.seo1-catfish-preview-cell').length;
           for (var j = existing; j < count; j++) {
             var cell = document.createElement('div');
             cell.className = 'seo1-catfish-preview-cell';
-            cell.style.cssText = cells[0] ? cells[0].style.cssText : 'height:50px;background:#374151;display:flex;align-items:center;justify-content:center';
+            cell.style.cssText = cells[0]
+              ? cells[0].style.cssText
+              : 'height:50px;background:#374151;display:flex;align-items:center;justify-content:center';
             cell.innerHTML = '<span class="dashicons dashicons-format-image" style="font-size:20px;width:20px;height:20px;color:#6b7280"></span>';
             grid.appendChild(cell);
           }
@@ -253,7 +247,7 @@
     }
   }
 
-  /* ── Tracking override collapsible ───────────────────────────────────────── */
+  /* ── Tracking override collapsible ──────────────────────────────────────────── */
   function initTrackingOverride() {
     var trigger = document.querySelector('.seo1-trk-override-trigger');
     var body    = document.getElementById('seo1-trk-override-body');
@@ -266,16 +260,75 @@
         body.setAttribute('hidden', '');
       } else {
         body.removeAttribute('hidden');
-        // focus first input when opened
         var first = body.querySelector('input[type="text"]');
         if (first) first.focus();
       }
     });
   }
 
-  /* ── Init ─────────────────────────────────────────────────────────────────── */
+  /* ── Sync tracking từ Sheet → Override ──────────────────────────────────────── */
+  function initSyncTracking() {
+    var btn    = document.getElementById('seo1-sync-tracking-btn');
+    var result = document.getElementById('seo1-sync-tracking-result');
+    if (!btn || !result) return;
+
+    btn.addEventListener('click', function () {
+      btn.disabled    = true;
+      btn.textContent = 'Đang sync...';
+      result.style.display = 'none';
+
+      var data = new FormData();
+      data.append('action', 'seo1_sync_tracking');
+      data.append('nonce',  (window.seo1Admin || {}).syncNonce || '');
+
+      fetch((window.seo1Admin || {}).ajaxUrl || '/wp-admin/admin-ajax.php', {
+        method:      'POST',
+        credentials: 'same-origin',
+        body:        data,
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          result.style.display = 'inline';
+          if (res.success) {
+            result.style.color = '#00a32a';
+            result.textContent = res.data.message;
+
+            var map = res.data.params_map || {};
+            Object.keys(map).forEach(function (brandId) {
+              var input = document.querySelector('[data-tracking-preview="' + brandId + '"]');
+              if (!input || input.value) return;
+              input.value = map[brandId];
+              input.dispatchEvent(new Event('input'));
+            });
+
+            if (res.data.populated > 0) {
+              var trigger = document.querySelector('.seo1-trk-override-trigger');
+              var body    = document.getElementById('seo1-trk-override-body');
+              if (trigger && body && trigger.getAttribute('aria-expanded') === 'false') {
+                trigger.setAttribute('aria-expanded', 'true');
+                body.removeAttribute('hidden');
+              }
+            }
+          } else {
+            result.style.color = '#d63638';
+            result.textContent = (res.data && res.data.message) ? res.data.message : 'Lỗi không xác định.';
+          }
+        })
+        .catch(function () {
+          result.style.display = 'inline';
+          result.style.color   = '#d63638';
+          result.textContent   = 'Lỗi kết nối.';
+        })
+        .finally(function () {
+          btn.disabled    = false;
+          btn.textContent = 'Sync từ Sheet';
+        });
+    });
+  }
+
+  /* ── Init ───────────────────────────────────────────────────────────────────── */
   document.addEventListener('DOMContentLoaded', function () {
-    initSectionNav();
+    initJumpNav();
     initStyleSwatches();
     initLabelInputs();
     initTrackingPreviews();
@@ -284,6 +337,7 @@
     initReviewAccordion();
     initAppearancePreviews();
     initTrackingOverride();
+    initSyncTracking();
   });
 
 })();

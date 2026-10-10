@@ -34,6 +34,7 @@ final class SEO1_Admin
         add_action('admin_notices',         [self::class, 'admin_notices']);
         add_action('admin_enqueue_scripts', [self::class, 'enqueue_assets']);
         add_action('admin_init',            [self::class, 'bypass_cache']);
+        add_action('wp_ajax_seo1_sync_tracking', [self::class, 'ajax_sync_tracking']);
         add_filter(
             'plugin_action_links_' . plugin_basename(SEO1_ADBANNER_FILE),
             [self::class, 'plugin_action_links']
@@ -100,6 +101,80 @@ final class SEO1_Admin
             $js_ver,
             true
         );
+        wp_localize_script('seo1-admin', 'seo1Admin', [
+            'ajaxUrl'       => admin_url('admin-ajax.php'),
+            'syncNonce'     => wp_create_nonce('seo1_sync_tracking_nonce'),
+        ]);
+    }
+
+    // ── AJAX: sync tracking từ Sheet → override thủ công ──────────────────────
+
+    public static function ajax_sync_tracking(): void
+    {
+        check_ajax_referer('seo1_sync_tracking_nonce', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Không có quyền.'], 403);
+        }
+
+        $settings = (array) get_option(SEO1_ADBANNER_OPTION, []);
+        $api_url  = SEO1_Remote_Config::get_api_url();
+        $site_id  = seo1_adbanner_resolve_site_id();
+
+        if (!$api_url) {
+            wp_send_json_error(['message' => 'Chưa cấu hình API URL.']);
+        }
+        if (!$site_id) {
+            wp_send_json_error(['message' => 'Chưa cấu hình Site ID.']);
+        }
+
+        $host = wp_parse_url(home_url(), PHP_URL_HOST) ?? '';
+        $host = (string) preg_replace('/^www\./i', '', $host);
+
+        // Lấy data mới nhất kèm tracking_urls (bỏ qua cache)
+        $client   = new SEO1_API_Client($api_url, (int) ($settings['cache_ttl'] ?? 60), (int) ($settings['brand_cache_ttl'] ?? 30));
+        $api_data = $client->get_site_data($site_id, $host, true);
+
+        if (!$api_data || empty($api_data['tracking_urls']) || !is_array($api_data['tracking_urls'])) {
+            wp_send_json_error(['message' => 'Không lấy được tracking URLs từ Sheet. Kiểm tra Sheet đã Publish và đã Sync trên backend.']);
+        }
+
+        $api_tracking = $api_data['tracking_urls']; // ['net88' => 'https://net88.tv/?a=xxx&utm_...']
+
+        // Load override hiện tại
+        $current = (array) get_option('seo1_tracking', []);
+
+        $populated = 0;
+        $skipped   = 0;
+        $params_map = []; // brand_id => extracted query params
+
+        foreach ($api_tracking as $brand_id => $track_url) {
+            $brand_id = sanitize_key((string) $brand_id);
+            if (empty($brand_id) || empty($track_url)) continue;
+
+            // Chỉ populate nếu chưa có override
+            if (!empty($current[$brand_id])) {
+                $skipped++;
+                continue;
+            }
+
+            // Extract query string: "https://net88.tv/?a=xxx&utm_..." → "a=xxx&utm_..."
+            $parsed = wp_parse_url((string) $track_url);
+            $query  = $parsed['query'] ?? '';
+            if (empty($query)) continue;
+
+            $current[$brand_id]    = $query;
+            $params_map[$brand_id] = $query;
+            $populated++;
+        }
+
+        update_option('seo1_tracking', $current, false);
+
+        wp_send_json_success([
+            'message'    => sprintf('Đã sync %d tracking params. Bỏ qua %d (đã có override).', $populated, $skipped),
+            'populated'  => $populated,
+            'skipped'    => $skipped,
+            'params_map' => $params_map,
+        ]);
     }
 
     // ── Save handler ───────────────────────────────────────────────────────────
@@ -125,10 +200,13 @@ final class SEO1_Admin
             'auto_detect'     => !empty($_POST['auto_detect']),
             'auto_catfish'    => !empty($_POST['auto_catfish']),
             'auto_popup'      => !empty($_POST['auto_popup']),
-            'cache_ttl'       => max(10, (int) ($_POST['cache_ttl'] ?? 60)),
-            'brand_cache_ttl' => max(5, (int) ($_POST['brand_cache_ttl'] ?? 30)),
+            'cache_ttl'       => max(10, min(3600, (int) ($_POST['cache_ttl'] ?? 60))),
+            'brand_cache_ttl' => max(5, min(3600, (int) ($_POST['brand_cache_ttl'] ?? 30))),
             'rotate_interval' => max(1000, (int) ($_POST['rotate_interval'] ?? 5000)),
             'popup_delay'     => max(0, (int) ($_POST['popup_delay'] ?? 3)),
+            'short_links'     => !empty($_POST['short_links']),
+            'short_base'      => SEO1_Short_Links::sanitize_base((string) wp_unslash($_POST['short_base'] ?? '')),
+            'short_default'   => sanitize_key((string) ($_POST['short_default'] ?? '')),
         ]);
 
         $tracking = [];
@@ -169,7 +247,7 @@ final class SEO1_Admin
         foreach (['btn1', 'btn2'] as $slot) {
             $raw        = $_POST['btn'][$slot] ?? [];
             $btn[$slot] = [
-                'style' => max(1, min(8, (int) ($raw['style'] ?? 1))),
+                'style' => max(1, min(14, (int) ($raw['style'] ?? 1))),
                 'label' => sanitize_text_field($raw['label'] ?? ''),
                 'icon'  => sanitize_key($raw['icon'] ?? 'migrate'),
             ];
@@ -194,8 +272,10 @@ final class SEO1_Admin
 
         (new SEO1_API_Client(SEO1_Remote_Config::get_api_url()))->clear_cache();
         SEO1_Remote_Config::clear();
+        delete_transient('seo1_purge_lock');
+        seo1_adbanner_purge_page_cache(); // cài đặt đổi → trang đã cache cần render lại
 
-        wp_redirect(add_query_arg('seo1_saved', '1', admin_url('admin.php?page=' . self::PAGE_SLUG)));
+        wp_safe_redirect(add_query_arg('seo1_saved', '1', admin_url('admin.php?page=' . self::PAGE_SLUG)));
         exit;
     }
 
@@ -207,11 +287,12 @@ final class SEO1_Admin
             return;
         }
 
-        // Assets đã được enqueue qua enqueue_assets() → không inline lại.
         // Cache clear action
         if (isset($_POST['seo1_clear_cache']) && check_admin_referer(self::NONCE_OLD, 'seo1_nonce')) {
             (new SEO1_API_Client(SEO1_Remote_Config::get_api_url()))->clear_cache();
             SEO1_Remote_Config::clear();
+            delete_transient('seo1_purge_lock');
+            seo1_adbanner_purge_page_cache();
             add_settings_error(SEO1_ADBANNER_OPTION, 'cache_cleared', __('Đã xóa toàn bộ cache.', 'seo1-adbanner'), 'success');
         }
 
@@ -232,30 +313,36 @@ final class SEO1_Admin
         $sites_list    = [];
         $api_online    = false;
 
-        $button_slots      = []; // banners_button slots from server
-        $api_tracking_urls = []; // tracking URLs từ backend Sheet
+        $button_slots      = [];
+        $api_tracking_urls = [];
+        $site_id           = '';
         if ($api_url) {
             $client        = new SEO1_API_Client($api_url);
             $brand_objects = $client->get_brand_objects();
-            $sites_list    = $client->get_sites();
+            $sites_list    = $client->get_sites(true);
             $api_online    = !empty($brand_objects) || !empty($sites_list);
 
-            // Fetch button slot brand assignments + tracking URLs từ server
             $site_id = seo1_adbanner_resolve_site_id();
             if ($site_id) {
                 $host = wp_parse_url(home_url(), PHP_URL_HOST) ?? '';
                 $host = preg_replace('/^www\./i', '', $host);
-                // Xóa transient để force fetch mới có domain → nhận tracking_urls
-                delete_transient('seo1_site_' . sanitize_key($site_id));
-                $site_data         = $client->get_site_data($site_id, $host);
+                $site_data         = $client->get_site_data($site_id, $host, true);
                 $button_slots      = $site_data['banners_button'] ?? [];
                 $api_tracking_urls = isset($site_data['tracking_urls']) && is_array($site_data['tracking_urls'])
                                      ? $site_data['tracking_urls'] : [];
             }
         }
 
-        $saved_notice = isset($_GET['seo1_saved']) && $_GET['seo1_saved'] === '1';
-        $page_url     = esc_url(admin_url('admin.php?page=' . self::PAGE_SLUG));
+        $saved_notice      = isset($_GET['seo1_saved']) && $_GET['seo1_saved'] === '1';
+        $page_url          = esc_url(admin_url('admin.php?page=' . self::PAGE_SLUG));
+        $tracking_count    = count(array_filter($tracking));
+        $cta_configured    = !empty($btn_styles['btn1']['label']) || !empty($btn_styles['btn2']['label']);
+
+        // Pill states
+        $pill_api   = $api_online ? 'ok'      : 'off';
+        $pill_trk   = $tracking_count > 0 ? 'ok' : 'warn';
+        $pill_cta   = $cta_configured  ? 'ok' : 'neutral';
+        $pill_site  = $site_id ? 'ok' : 'warn';
         ?>
         <div class="wrap seo1-wrap">
 
@@ -273,6 +360,15 @@ final class SEO1_Admin
 
             <?php settings_errors(SEO1_ADBANNER_OPTION); ?>
 
+            <?php if ($test_result !== null) : ?>
+                <div class="notice <?php echo $test_result['ok'] ? 'notice-success' : 'notice-error'; ?> is-dismissible">
+                    <p><?php echo esc_html($test_result['message']); ?>
+                    <?php if (!empty($test_result['detail'])) : ?>
+                        <br><code><?php echo esc_html($test_result['detail']); ?></code>
+                    <?php endif; ?></p>
+                </div>
+            <?php endif; ?>
+
             <form method="post" action="" id="seo1-settings-form">
                 <?php wp_nonce_field(self::NONCE_EXT, 'seo1_extended_nonce'); ?>
                 <?php wp_nonce_field(self::NONCE_OLD, 'seo1_nonce'); ?>
@@ -280,25 +376,19 @@ final class SEO1_Admin
                 <!-- Sticky save bar -->
                 <div class="seo1-save-bar">
                     <div class="seo1-save-bar-left">
-                        <span class="dashicons dashicons-images-alt2"></span>
                         SEO1 Ad Banner
-                        <span class="seo1-status-dot <?php echo $api_online ? 'seo1-status-online' : 'seo1-status-offline'; ?>">
-                            <?php echo $api_online ? esc_html__('API Online', 'seo1-adbanner') : esc_html__('API Offline', 'seo1-adbanner'); ?>
-                        </span>
                     </div>
                     <div class="seo1-save-bar-right">
                         <button type="submit" name="seo1_clear_cache" value="1"
                             formaction="<?php echo $page_url; ?>"
                             formnovalidate
                             class="button button-secondary">
-                            <span class="dashicons dashicons-trash" style="font-size:14px;width:14px;height:14px;margin-top:3px;margin-right:3px;"></span>
                             <?php esc_html_e('Xóa Cache', 'seo1-adbanner'); ?>
                         </button>
                         <button type="submit" name="seo1_test_connection" value="1"
                             formaction="<?php echo $page_url; ?>"
                             formnovalidate
                             class="button button-secondary">
-                            <span class="dashicons dashicons-networking" style="font-size:14px;width:14px;height:14px;margin-top:3px;margin-right:3px;"></span>
                             <?php esc_html_e('Test API', 'seo1-adbanner'); ?>
                         </button>
                         <button type="submit" class="button button-primary">
@@ -307,40 +397,55 @@ final class SEO1_Admin
                     </div>
                 </div>
 
-                <!-- Section jump nav -->
-                <nav class="seo1-section-nav" aria-label="Điều hướng nhanh">
-                    <?php foreach (self::SECTIONS as $key => $sec) : ?>
-                        <a href="#seo1-section-<?php echo esc_attr($key); ?>" class="seo1-section-nav-link">
-                            <span class="dashicons <?php echo esc_attr($sec['icon']); ?>"></span>
-                            <?php echo esc_html($sec['label']); ?>
-                        </a>
-                    <?php endforeach; ?>
+                <!-- Status pills (read-only) -->
+                <div class="seo1-pills">
+                    <div class="seo1-pill seo1-pill-<?php echo esc_attr($pill_api); ?>">
+                        <span class="seo1-pill-label"><?php esc_html_e('API', 'seo1-adbanner'); ?></span>
+                        <span class="seo1-pill-value"><?php echo $api_online ? esc_html__('Online', 'seo1-adbanner') : esc_html__('Offline', 'seo1-adbanner'); ?></span>
+                    </div>
+                    <div class="seo1-pill seo1-pill-<?php echo esc_attr($pill_trk); ?>">
+                        <span class="seo1-pill-label"><?php esc_html_e('Tracking', 'seo1-adbanner'); ?></span>
+                        <span class="seo1-pill-value"><?php echo $tracking_count > 0 ? esc_html(sprintf('%d brand', $tracking_count)) : esc_html__('Chưa cấu hình', 'seo1-adbanner'); ?></span>
+                    </div>
+                    <div class="seo1-pill seo1-pill-<?php echo esc_attr($pill_cta); ?>">
+                        <span class="seo1-pill-label"><?php esc_html_e('Nút CTA', 'seo1-adbanner'); ?></span>
+                        <span class="seo1-pill-value"><?php echo $cta_configured ? esc_html__('Đã cấu hình', 'seo1-adbanner') : esc_html__('Mặc định', 'seo1-adbanner'); ?></span>
+                    </div>
+                    <div class="seo1-pill seo1-pill-<?php echo esc_attr($pill_site); ?>">
+                        <span class="seo1-pill-label"><?php esc_html_e('Site ID', 'seo1-adbanner'); ?></span>
+                        <span class="seo1-pill-value"><?php echo $site_id ? esc_html($site_id) : esc_html__('Chưa cấu hình', 'seo1-adbanner'); ?></span>
+                    </div>
+                </div>
+
+                <!-- Jump nav -->
+                <nav class="seo1-jump-nav" aria-label="Điều hướng nhanh">
+                    <a href="#seo1-section-api"        class="seo1-jump-link"><?php esc_html_e('API & Cache', 'seo1-adbanner'); ?></a>
+                    <a href="#seo1-section-tracking"   class="seo1-jump-link"><?php esc_html_e('Tracking', 'seo1-adbanner'); ?></a>
+                    <a href="#seo1-section-cta"        class="seo1-jump-link"><?php esc_html_e('Nút CTA', 'seo1-adbanner'); ?></a>
+                    <a href="#seo1-section-reviews"    class="seo1-jump-link"><?php esc_html_e('Reviews', 'seo1-adbanner'); ?></a>
+                    <a href="#seo1-section-shortcodes" class="seo1-jump-link"><?php esc_html_e('Shortcodes', 'seo1-adbanner'); ?></a>
                 </nav>
 
                 <!-- Sections -->
-                <div class="seo1-sections">
+                <div id="seo1-section-api" class="seo1-section">
+                    <?php self::render_section_api($settings, $sites_list, $api_url, $api_online, $brand_objects); ?>
+                </div>
 
-                    <div id="seo1-section-api" class="seo1-section">
-                        <?php self::render_section_api($settings, $sites_list, $api_url, $api_online); ?>
-                    </div>
+                <div id="seo1-section-tracking" class="seo1-section">
+                    <?php self::render_section_tracking($brand_objects, $tracking, $api_tracking_urls); ?>
+                </div>
 
-                    <div id="seo1-section-shortcodes" class="seo1-section">
-                        <?php self::render_section_shortcodes($prefix); ?>
-                    </div>
+                <div id="seo1-section-cta" class="seo1-section">
+                    <?php self::render_section_cta($brand_objects, $tracking, $btn_styles, $prefix, $button_slots); ?>
+                </div>
 
-                    <div id="seo1-section-tracking" class="seo1-section">
-                        <?php self::render_section_tracking($brand_objects, $tracking, $api_tracking_urls); ?>
-                    </div>
+                <div id="seo1-section-reviews" class="seo1-section">
+                    <?php self::render_section_reviews($brand_objects, $reviews); ?>
+                </div>
 
-                    <div id="seo1-section-cta" class="seo1-section">
-                        <?php self::render_section_cta($brand_objects, $tracking, $btn_styles, $prefix, $button_slots); ?>
-                    </div>
-
-                    <div id="seo1-section-reviews" class="seo1-section">
-                        <?php self::render_section_reviews($brand_objects, $reviews); ?>
-                    </div>
-
-                </div><!-- .seo1-sections -->
+                <div id="seo1-section-shortcodes" class="seo1-section">
+                    <?php self::render_section_shortcodes($prefix); ?>
+                </div>
 
             </form>
         </div>
@@ -349,7 +454,7 @@ final class SEO1_Admin
 
     // ── Section renderers ──────────────────────────────────────────────────────
 
-    private static function render_section_api(array $settings, array $sites_list, string $api_url, bool $api_online): void
+    private static function render_section_api(array $settings, array $sites_list, string $api_url, bool $api_online, array $brand_objects = []): void
     {
         ?>
         <div class="seo1-panel">
@@ -381,7 +486,6 @@ final class SEO1_Admin
                                     class="regular-text"
                                     placeholder="nganh-g">
                             <?php endif; ?>
-                            <p class="description"><?php esc_html_e('Dùng khi shortcode không chỉ định site và auto-detect tắt.', 'seo1-adbanner'); ?></p>
                         </td>
                     </tr>
                 </table>
@@ -426,6 +530,70 @@ final class SEO1_Admin
             </div>
         </div>
 
+        <?php
+        $short_base = SEO1_Short_Links::sanitize_base((string) ($settings['short_base'] ?? SEO1_Short_Links::DEFAULT_BASE));
+        $short_demo = home_url('/' . $short_base);
+        ?>
+        <div class="seo1-panel">
+            <div class="seo1-panel-head">
+                <span class="dashicons dashicons-admin-links"></span>
+                <h2><?php esc_html_e('Link rút gọn', 'seo1-adbanner'); ?></h2>
+            </div>
+            <div class="seo1-panel-body">
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th><?php esc_html_e('Rút gọn link quảng cáo', 'seo1-adbanner'); ?></th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="short_links" value="1" <?php checked(!empty($settings['short_links'])); ?>>
+                                <?php esc_html_e('Hiển thị link dạng domain của site, khách bấm sẽ được chuyển tới link thật', 'seo1-adbanner'); ?>
+                            </label>
+                            <p class="description">
+                                <?php esc_html_e('Ví dụ:', 'seo1-adbanner'); ?>
+                                <code><?php echo esc_html($short_demo); ?></code>
+                                — <?php esc_html_e('mọi banner/nút đều hiện đúng link này; khi khách bấm, plugin tự biết banner nào được bấm và chuyển tới link thật của banner đó. Brand đổi domain thì trang đã cache vẫn dẫn tới link mới.', 'seo1-adbanner'); ?>
+                            </p>
+                            <?php if (!SEO1_Short_Links::permalinks_ok()) : ?>
+                                <p class="description" style="color:#b32d2e">
+                                    <?php esc_html_e('Đường dẫn tĩnh (Cài đặt → Đường dẫn tĩnh) đang để "Mặc định" nên link rút gọn tạm tắt. Chọn kiểu khác "Mặc định" để dùng.', 'seo1-adbanner'); ?>
+                                </p>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="seo1_short_base"><?php esc_html_e('Đường dẫn', 'seo1-adbanner'); ?></label></th>
+                        <td>
+                            <code><?php echo esc_html(home_url('/')); ?></code>
+                            <input type="text" id="seo1_short_base" name="short_base"
+                                value="<?php echo esc_attr($short_base); ?>"
+                                class="regular-text" style="width:180px"
+                                pattern="[a-zA-Z0-9\-]+" placeholder="<?php echo esc_attr(SEO1_Short_Links::DEFAULT_BASE); ?>">
+                            <p class="description"><?php esc_html_e('Chỉ chữ, số và dấu gạch ngang (mặc định: trackinglink). Đã tự thêm Disallow vào robots.txt.', 'seo1-adbanner'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="seo1_short_default"><?php esc_html_e('Brand mặc định', 'seo1-adbanner'); ?></label></th>
+                        <td>
+                            <?php $short_default = (string) ($settings['short_default'] ?? ''); ?>
+                            <?php if (!empty($brand_objects)) : ?>
+                                <select id="seo1_short_default" name="short_default">
+                                    <option value=""><?php esc_html_e('-- Tự động (brand có tracking đầu tiên) --', 'seo1-adbanner'); ?></option>
+                                    <?php foreach ($brand_objects as $bid => $bo) : ?>
+                                        <option value="<?php echo esc_attr((string) $bid); ?>" <?php selected($short_default, (string) $bid); ?>>
+                                            <?php echo esc_html((string) ($bo['name'] ?? $bid)); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            <?php else : ?>
+                                <input type="text" id="seo1_short_default" name="short_default" value="<?php echo esc_attr($short_default); ?>" class="regular-text" style="width:180px" placeholder="bin88">
+                            <?php endif; ?>
+                            <p class="description"><?php esc_html_e('Dùng khi không xác định được khách bấm banner nào (trình duyệt tắt JavaScript, bot, mở link trực tiếp).', 'seo1-adbanner'); ?></p>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
         <div class="seo1-panel">
             <div class="seo1-panel-head">
                 <span class="dashicons dashicons-clock"></span>
@@ -439,7 +607,7 @@ final class SEO1_Admin
                             <input type="number" id="seo1_cache_ttl" name="cache_ttl"
                                 value="<?php echo esc_attr($settings['cache_ttl']); ?>"
                                 min="10" max="3600" class="small-text">
-                            <span class="description"><?php esc_html_e('giây (mặc định: 60)', 'seo1-adbanner'); ?></span>
+                            <span class="description"><?php esc_html_e('giây (mặc định: 60). Làm mới sau khi trả trang, không làm chậm khách.', 'seo1-adbanner'); ?></span>
                         </td>
                     </tr>
                     <tr>
@@ -447,8 +615,8 @@ final class SEO1_Admin
                         <td>
                             <input type="number" id="seo1_brand_cache_ttl" name="brand_cache_ttl"
                                 value="<?php echo esc_attr($settings['brand_cache_ttl']); ?>"
-                                min="5" max="300" class="small-text">
-                            <span class="description"><?php esc_html_e('giây (mặc định: 30)', 'seo1-adbanner'); ?></span>
+                                min="5" max="3600" class="small-text">
+                            <span class="description"><?php esc_html_e('giây (mặc định: 30). Link brand đổi → tự xoá page cache.', 'seo1-adbanner'); ?></span>
                         </td>
                     </tr>
                     <tr>
@@ -514,6 +682,15 @@ final class SEO1_Admin
                 </div>
             <?php else : ?>
 
+            <!-- ── Sync button ── -->
+            <div class="seo1-sync-bar">
+                <button type="button" id="seo1-sync-tracking-btn" class="button button-primary">
+                    <?php esc_html_e('Sync từ Sheet', 'seo1-adbanner'); ?>
+                </button>
+                <span class="seo1-sync-hint"><?php esc_html_e('Chỉ populate brand chưa có override. Không ghi đè dữ liệu đã nhập tay.', 'seo1-adbanner'); ?></span>
+                <span id="seo1-sync-tracking-result"></span>
+            </div>
+
             <!-- ── Phần 1: Từ Backend Sheet ── -->
             <div class="seo1-trk-section">
                 <div class="seo1-trk-section-head">
@@ -532,9 +709,8 @@ final class SEO1_Admin
                     <thead>
                         <tr>
                             <th class="seo1-col-brand"><?php esc_html_e('Brand', 'seo1-adbanner'); ?></th>
-                            <th><?php esc_html_e('Tracking URL (từ Sheet)', 'seo1-adbanner'); ?></th>
+                            <th class="seo1-col-sheet"><?php esc_html_e('Tracking URL (từ Sheet)', 'seo1-adbanner'); ?></th>
                             <th class="seo1-col-current"><?php esc_html_e('Current Tracking URL', 'seo1-adbanner'); ?></th>
-                            <th class="seo1-col-action"></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -571,7 +747,6 @@ final class SEO1_Admin
                                     <?php endif; ?>
                                     <div>
                                         <strong class="seo1-trk-name"><?php echo esc_html($name); ?></strong>
-                                        <code class="seo1-id-tag"><?php echo esc_html($bid); ?></code>
                                     </div>
                                 </div>
                             </td>
@@ -585,14 +760,6 @@ final class SEO1_Admin
                                 <?php else : ?>
                                     <code class="seo1-trk-url seo1-trk-url-same"><?php echo esc_html($current_url); ?></code>
                                 <?php endif; ?>
-                            </td>
-                            <td>
-                                <button type="button"
-                                    class="button button-small seo1-copy-btn"
-                                    data-copy="<?php echo esc_attr($current_url); ?>"
-                                    title="<?php esc_attr_e('Copy Current URL', 'seo1-adbanner'); ?>">
-                                    <span class="dashicons dashicons-clipboard" style="font-size:13px;width:13px;height:13px;margin:0"></span>
-                                </button>
                             </td>
                         </tr>
                         <?php endforeach; ?>
@@ -674,7 +841,7 @@ final class SEO1_Admin
                                         name="tracking[<?php echo esc_attr($bid); ?>]"
                                         value="<?php echo esc_attr($param_val); ?>"
                                         class="regular-text seo1-trk-input"
-                                        placeholder="<?php esc_attr_e('vd: aff=site001', 'seo1-adbanner'); ?>"
+                                        placeholder=""
                                         data-tracking-preview="<?php echo esc_attr($bid); ?>"
                                         data-base-url="<?php echo esc_attr($login_url); ?>">
                                 </td>
@@ -699,20 +866,32 @@ final class SEO1_Admin
     private static function render_section_cta(array $brand_objects, array $tracking, array $btn_styles, string $prefix, array $button_slots = []): void
     {
         $preset_colors = [
-            1 => ['bg' => 'linear-gradient(135deg,#16a34a,#15803d)', 'color' => '#fff',    'border' => 'transparent'],
-            2 => ['bg' => 'linear-gradient(135deg,#dc2626,#b91c1c)', 'color' => '#fff',    'border' => 'transparent'],
-            3 => ['bg' => 'linear-gradient(135deg,#f59e0b,#d97706)', 'color' => '#000',    'border' => 'transparent'],
-            4 => ['bg' => 'linear-gradient(135deg,#1f2937,#111827)', 'color' => '#fff',    'border' => 'transparent'],
-            5 => ['bg' => 'transparent',                             'color' => '#2271b1', 'border' => '#2271b1'],
-            6 => ['bg' => 'linear-gradient(135deg,#7c3aed,#6d28d9)', 'color' => '#fff',    'border' => 'transparent'],
-            7 => ['bg' => 'linear-gradient(135deg,#ea580c,#c2410c)', 'color' => '#fff',    'border' => 'transparent'],
-            8 => ['bg' => 'linear-gradient(135deg,#2563eb,#1d4ed8)', 'color' => '#fff',    'border' => 'transparent'],
+            1  => ['bg' => 'linear-gradient(135deg,#16a34a,#15803d)', 'color' => '#fff',    'border' => 'transparent'],
+            2  => ['bg' => 'linear-gradient(135deg,#dc2626,#b91c1c)', 'color' => '#fff',    'border' => 'transparent'],
+            3  => ['bg' => 'linear-gradient(135deg,#f59e0b,#d97706)', 'color' => '#000',    'border' => 'transparent'],
+            4  => ['bg' => 'linear-gradient(135deg,#1f2937,#111827)', 'color' => '#fff',    'border' => 'transparent'],
+            5  => ['bg' => 'transparent',                             'color' => '#2271b1', 'border' => '#2271b1'],
+            6  => ['bg' => 'linear-gradient(135deg,#7c3aed,#6d28d9)', 'color' => '#fff',    'border' => 'transparent'],
+            7  => ['bg' => 'linear-gradient(135deg,#ea580c,#c2410c)', 'color' => '#fff',    'border' => 'transparent'],
+            8  => ['bg' => 'linear-gradient(135deg,#2563eb,#1d4ed8)', 'color' => '#fff',    'border' => 'transparent'],
+            9  => ['bg' => 'linear-gradient(135deg,#b45309,#92400e)', 'color' => '#fff',    'border' => 'transparent'],
+            10 => ['bg' => 'linear-gradient(135deg,#78350f,#451a03)', 'color' => '#fff',    'border' => 'transparent'],
+            11 => ['bg' => 'linear-gradient(135deg,#d4af37,#b8960c)', 'color' => '#1a1200', 'border' => 'transparent'],
+            12 => ['bg' => 'linear-gradient(135deg,#064e3b,#065f46)', 'color' => '#fff',    'border' => 'transparent'],
+            13 => ['bg' => 'linear-gradient(135deg,#be185d,#9d174d)', 'color' => '#fff',    'border' => 'transparent'],
+            14 => ['bg' => 'transparent',                             'color' => '#6b7280', 'border' => '#9ca3af'],
         ];
-        $swatch_names = ['1' => 'Xanh', '2' => 'Đỏ', '3' => 'Vàng', '4' => 'Đen', '5' => 'Outline', '6' => 'Tím', '7' => 'Cam', '8' => 'Xanh dương'];
+        $swatch_names = [
+            '1'  => 'Xanh lá',    '2'  => 'Đỏ',         '3' => 'Vàng',
+            '4'  => 'Đen',        '5'  => 'Outline',     '6' => 'Tím',
+            '7'  => 'Cam',        '8'  => 'Xanh dương',
+            '9'  => 'Vàng đồng',  '10' => 'Nâu',         '11' => 'Vàng Gold',
+            '12' => 'Xanh đậm',   '13' => 'Hồng',        '14' => 'Bạc',
+        ];
 
         $slots = [
             'btn1' => ['label' => __('Button 1', 'seo1-adbanner'), 'default_label' => __('Cược Ngay',    'seo1-adbanner'), 'default_style' => 1, 'server_index' => 0],
-            'btn2' => ['label' => __('Button 2', 'seo1-adbanner'), 'default_label' => __('Xem Bóng Đá', 'seo1-adbanner'), 'default_style' => 8, 'server_index' => 1],
+            'btn2' => ['label' => __('Button 2', 'seo1-adbanner'), 'default_label' => __('Xem Bóng Đá Miễn Phí', 'seo1-adbanner'), 'default_style' => 8, 'server_index' => 1],
         ];
         $prefix_sc = $prefix . '_button';
         ?>
@@ -725,7 +904,7 @@ final class SEO1_Admin
             <div style="padding:16px 20px 4px">
                 <?php foreach ($slots as $slot_key => $slot_info) :
                     $bdata         = $btn_styles[$slot_key] ?? ['style' => $slot_info['default_style'], 'label' => ''];
-                    $slot_style    = max(1, min(8, (int) ($bdata['style'] ?? 1)));
+                    $slot_style    = max(1, min(14, (int) ($bdata['style'] ?? 1)));
                     $preset        = $preset_colors[$slot_style];
                     $display_label = $bdata['label'] ?: $slot_info['default_label'];
 
@@ -773,7 +952,7 @@ final class SEO1_Admin
                                 <span class="seo1-cta-flabel"><?php esc_html_e('Màu sắc', 'seo1-adbanner'); ?></span>
                                 <div class="seo1-cta-fval">
                                     <div class="seo1-style-swatches">
-                                        <?php for ($n = 1; $n <= 8; $n++) : ?>
+                                        <?php for ($n = 1; $n <= 14; $n++) : ?>
                                             <label class="seo1-swatch-item" title="<?php echo esc_attr($swatch_names[(string) $n] ?? ''); ?>">
                                                 <input type="radio"
                                                     name="btn[<?php echo esc_attr($slot_key); ?>][style]"
@@ -812,12 +991,11 @@ final class SEO1_Admin
         ?>
         <div class="seo1-panel">
             <div class="seo1-panel-head">
-                <span class="dashicons dashicons-list-view"></span>
                 <h2><?php esc_html_e('Toplist Reviews', 'seo1-adbanner'); ?></h2>
                 <?php if (!empty($brand_objects)) : ?>
                     <span class="seo1-badge"><?php echo count($brand_objects); ?> brands</span>
                     <button type="button" class="button button-small seo1-rv-expand-all"
-                        style="margin-left:auto;font-size:11px"
+                        style="margin-left:auto"
                         data-label-open="<?php esc_attr_e('Thu gọn tất cả', 'seo1-adbanner'); ?>"
                         data-label-closed="<?php esc_attr_e('Mở rộng tất cả', 'seo1-adbanner'); ?>">
                         <?php esc_html_e('Mở rộng tất cả', 'seo1-adbanner'); ?>
@@ -830,9 +1008,7 @@ final class SEO1_Admin
                     $rv_accordion_id++;
                     $accordion_id = 'seo1-rv-acc-' . $rv_accordion_id;
                     $rv = $reviews[$bid] ?? [];
-                    if (is_string($rv)) {
-                        $rv = ['review' => $rv];
-                    }
+                    if (is_string($rv)) { $rv = ['review' => $rv]; }
                     $rv = array_merge([
                         'bg_color'          => '#1a3a6b',
                         'rating'            => '',
@@ -850,9 +1026,7 @@ final class SEO1_Admin
                                 || $rv['feature_1'] || $rv['feature_2'] || $rv['review']
                                 || !empty($rv['badge_trusted']) || !empty($rv['badge_editor_pick']);
                 ?>
-                <div class="seo1-rv-item" style="border-top:1px solid #ebebec">
-
-                    <!-- Accordion trigger -->
+                <div class="seo1-rv-item">
                     <button type="button"
                         class="seo1-rv-trigger"
                         aria-expanded="false"
@@ -862,135 +1036,126 @@ final class SEO1_Admin
                                 <img src="<?php echo esc_url($img_url); ?>"
                                     alt="<?php echo esc_attr($name); ?>"
                                     width="28" height="28"
-                                    style="width:28px;height:28px;object-fit:cover;border-radius:4px;border:1px solid #dcdcde;flex-shrink:0"
+                                    style="width:28px;height:28px;object-fit:cover;border-radius:4px;border:1px solid #e2e8f0;flex-shrink:0"
                                     onerror="this.style.display='none'">
                             <?php endif; ?>
                             <span class="seo1-rv-trigger-info">
                                 <strong style="font-size:13px;color:#1d2327"><?php echo esc_html($name); ?></strong>
-                                <code style="font-size:10px;color:#787c82;background:none;padding:0"><?php echo esc_html($bid); ?></code>
                             </span>
                             <?php if (!empty($rv['badge_trusted'])) : ?>
-                                <span style="display:inline-flex;align-items:center;gap:3px;background:#d1fae5;color:#065f46;font-size:10px;font-weight:600;padding:1px 7px;border-radius:20px">
-                                    <span class="dashicons dashicons-yes-alt" style="font-size:11px;width:11px;height:11px"></span>Trusted
-                                </span>
+                                <span class="seo1-rv-badge seo1-rv-badge-trusted">Trusted</span>
                             <?php endif; ?>
                             <?php if (!empty($rv['badge_editor_pick'])) : ?>
-                                <span style="display:inline-flex;align-items:center;gap:3px;background:#fef9c3;color:#854d0e;font-size:10px;font-weight:600;padding:1px 7px;border-radius:20px">
-                                    <span class="dashicons dashicons-star-filled" style="font-size:11px;width:11px;height:11px"></span>Editor's Pick
-                                </span>
+                                <span class="seo1-rv-badge seo1-rv-badge-editor">Editor's Pick</span>
                             <?php endif; ?>
                             <?php if ($rv['rating']) : ?>
-                                <span style="font-size:11px;color:#d97706;font-weight:600"><?php echo esc_html($rv['rating']); ?> <span style="color:#b3b8be">/ 5</span></span>
+                                <span class="seo1-rv-rating-pill"><?php echo esc_html($rv['rating']); ?> / 5</span>
                             <?php endif; ?>
                         </span>
                         <span class="seo1-rv-trigger-right">
                             <?php if ($has_data) : ?>
-                                <span class="seo1-rv-filled-dot" title="<?php esc_attr_e('Đã có dữ liệu', 'seo1-adbanner'); ?>" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#00a32a;margin-right:4px"></span>
+                                <span class="seo1-rv-dot-filled" title="<?php esc_attr_e('Đã có dữ liệu', 'seo1-adbanner'); ?>"></span>
                             <?php endif; ?>
-                            <span class="dashicons dashicons-arrow-down-alt2 seo1-rv-chevron" style="font-size:16px;width:16px;height:16px;color:#787c82;transition:transform .2s"></span>
+                            <span class="dashicons dashicons-arrow-down-alt2 seo1-rv-chevron"></span>
                         </span>
                     </button>
 
-                    <!-- Accordion body -->
                     <div id="<?php echo esc_attr($accordion_id); ?>" class="seo1-rv-body" hidden>
-                        <div style="padding:16px 18px 18px">
+                        <div class="seo1-rv-body-inner">
 
-                            <!-- Row 1: numbers + color -->
-                            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px 16px;margin-bottom:14px;align-items:end">
-                                <div>
-                                    <label class="seo1-rv-label">Rating</label>
-                                    <input type="text"
-                                        name="reviews[<?php echo esc_attr($bid); ?>][rating]"
-                                        value="<?php echo esc_attr($rv['rating']); ?>"
-                                        placeholder="4.8"
-                                        class="small-text">
-                                </div>
-                                <div>
-                                    <label class="seo1-rv-label"><?php esc_html_e('Lượt đánh giá', 'seo1-adbanner'); ?></label>
-                                    <input type="text"
-                                        name="reviews[<?php echo esc_attr($bid); ?>][review_count]"
-                                        value="<?php echo esc_attr($rv['review_count']); ?>"
-                                        placeholder="1,234"
-                                        class="small-text">
-                                </div>
-                                <div>
-                                    <label class="seo1-rv-label">Trust Score</label>
-                                    <input type="text"
-                                        name="reviews[<?php echo esc_attr($bid); ?>][trust_score]"
-                                        value="<?php echo esc_attr($rv['trust_score']); ?>"
-                                        placeholder="9.5"
-                                        class="small-text">
-                                </div>
-                                <div>
-                                    <label class="seo1-rv-label"><?php esc_html_e('Màu nền toplist', 'seo1-adbanner'); ?></label>
-                                    <input type="color"
-                                        name="reviews[<?php echo esc_attr($bid); ?>][bg_color]"
-                                        value="<?php echo esc_attr($rv['bg_color']); ?>"
-                                        style="width:40px;height:28px;padding:2px;border:1px solid #dcdcde;border-radius:4px;cursor:pointer">
-                                </div>
-                            </div>
-
-                            <!-- Row 2: features -->
-                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-bottom:14px">
-                                <div>
-                                    <label class="seo1-rv-label"><?php esc_html_e('Tính năng 1', 'seo1-adbanner'); ?></label>
-                                    <input type="text"
-                                        name="reviews[<?php echo esc_attr($bid); ?>][feature_1]"
-                                        value="<?php echo esc_attr($rv['feature_1']); ?>"
-                                        placeholder="<?php esc_attr_e('Nạp rút nhanh', 'seo1-adbanner'); ?>"
-                                        style="width:100%">
-                                </div>
-                                <div>
-                                    <label class="seo1-rv-label"><?php esc_html_e('Tính năng 2', 'seo1-adbanner'); ?></label>
-                                    <input type="text"
-                                        name="reviews[<?php echo esc_attr($bid); ?>][feature_2]"
-                                        value="<?php echo esc_attr($rv['feature_2']); ?>"
-                                        placeholder="<?php esc_attr_e('Khuyến mãi hấp dẫn', 'seo1-adbanner'); ?>"
-                                        style="width:100%">
-                                </div>
-                            </div>
-
-                            <!-- Row 3: badges -->
-                            <div style="display:flex;align-items:center;gap:16px;margin-bottom:10px">
-                                <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px">
+                            <!-- Row 1: badges -->
+                            <div class="seo1-rv-badges-row">
+                                <label class="seo1-rv-check-label">
                                     <input type="checkbox"
                                         name="reviews[<?php echo esc_attr($bid); ?>][badge_trusted]"
                                         value="1"
                                         <?php checked(!empty($rv['badge_trusted'])); ?>>
-                                    <span style="display:inline-flex;align-items:center;gap:3px;background:#d1fae5;color:#065f46;font-size:11px;font-weight:600;padding:2px 10px;border-radius:20px">
-                                        <span class="dashicons dashicons-yes-alt" style="font-size:13px;width:13px;height:13px"></span>Trusted
-                                    </span>
+                                    <span class="seo1-rv-badge seo1-rv-badge-trusted">Trusted</span>
                                 </label>
-                                <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px">
+                                <label class="seo1-rv-check-label">
                                     <input type="checkbox"
                                         name="reviews[<?php echo esc_attr($bid); ?>][badge_editor_pick]"
                                         value="1"
                                         <?php checked(!empty($rv['badge_editor_pick'])); ?>>
-                                    <span style="display:inline-flex;align-items:center;gap:3px;background:#fef9c3;color:#854d0e;font-size:11px;font-weight:600;padding:2px 10px;border-radius:20px">
-                                        <span class="dashicons dashicons-star-filled" style="font-size:13px;width:13px;height:13px"></span>Editor's Pick
-                                    </span>
+                                    <span class="seo1-rv-badge seo1-rv-badge-editor">Editor's Pick</span>
                                 </label>
                             </div>
 
-                            <!-- Row 4: review text -->
-                            <div>
-                                <label class="seo1-rv-label"><?php esc_html_e('Nội dung review', 'seo1-adbanner'); ?></label>
-                                <textarea
-                                    name="reviews[<?php echo esc_attr($bid); ?>][review]"
-                                    rows="3"
-                                    style="width:100%;font-size:12px"
-                                    placeholder="<?php esc_attr_e('Nhà cái uy tín, nạp rút nhanh...', 'seo1-adbanner'); ?>"><?php echo esc_textarea($rv['review']); ?></textarea>
+                            <!-- Row 2: two columns -->
+                            <div class="seo1-rv-cols">
+                                <!-- Left: metrics -->
+                                <div class="seo1-rv-col">
+                                    <div class="seo1-rv-metrics">
+                                        <div class="seo1-rv-metric">
+                                            <label class="seo1-rv-label"><?php esc_html_e('Rating', 'seo1-adbanner'); ?></label>
+                                            <input type="text"
+                                                name="reviews[<?php echo esc_attr($bid); ?>][rating]"
+                                                value="<?php echo esc_attr($rv['rating']); ?>"
+                                                placeholder="4.8"
+                                                class="small-text">
+                                        </div>
+                                        <div class="seo1-rv-metric">
+                                            <label class="seo1-rv-label"><?php esc_html_e('Lượt đánh giá', 'seo1-adbanner'); ?></label>
+                                            <input type="text"
+                                                name="reviews[<?php echo esc_attr($bid); ?>][review_count]"
+                                                value="<?php echo esc_attr($rv['review_count']); ?>"
+                                                placeholder="1,234"
+                                                class="small-text">
+                                        </div>
+                                        <div class="seo1-rv-metric">
+                                            <label class="seo1-rv-label">Trust Score</label>
+                                            <input type="text"
+                                                name="reviews[<?php echo esc_attr($bid); ?>][trust_score]"
+                                                value="<?php echo esc_attr($rv['trust_score']); ?>"
+                                                placeholder="9.5"
+                                                class="small-text">
+                                        </div>
+                                        <div class="seo1-rv-metric">
+                                            <label class="seo1-rv-label"><?php esc_html_e('Màu nền toplist', 'seo1-adbanner'); ?></label>
+                                            <input type="color"
+                                                name="reviews[<?php echo esc_attr($bid); ?>][bg_color]"
+                                                value="<?php echo esc_attr($rv['bg_color']); ?>"
+                                                class="seo1-rv-color">
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- Right: content -->
+                                <div class="seo1-rv-col">
+                                    <div class="seo1-rv-field">
+                                        <label class="seo1-rv-label"><?php esc_html_e('Tính năng 1', 'seo1-adbanner'); ?></label>
+                                        <input type="text"
+                                            name="reviews[<?php echo esc_attr($bid); ?>][feature_1]"
+                                            value="<?php echo esc_attr($rv['feature_1']); ?>"
+                                            placeholder="<?php esc_attr_e('Nạp rút nhanh', 'seo1-adbanner'); ?>"
+                                            class="widefat">
+                                    </div>
+                                    <div class="seo1-rv-field">
+                                        <label class="seo1-rv-label"><?php esc_html_e('Tính năng 2', 'seo1-adbanner'); ?></label>
+                                        <input type="text"
+                                            name="reviews[<?php echo esc_attr($bid); ?>][feature_2]"
+                                            value="<?php echo esc_attr($rv['feature_2']); ?>"
+                                            placeholder="<?php esc_attr_e('Khuyến mãi hấp dẫn', 'seo1-adbanner'); ?>"
+                                            class="widefat">
+                                    </div>
+                                    <div class="seo1-rv-field">
+                                        <label class="seo1-rv-label"><?php esc_html_e('Nội dung review', 'seo1-adbanner'); ?></label>
+                                        <textarea
+                                            name="reviews[<?php echo esc_attr($bid); ?>][review]"
+                                            rows="3"
+                                            class="widefat"
+                                            placeholder="<?php esc_attr_e('Nhà cái uy tín, nạp rút nhanh...', 'seo1-adbanner'); ?>"><?php echo esc_textarea($rv['review']); ?></textarea>
+                                    </div>
+                                </div>
                             </div>
 
                         </div>
                     </div>
-
-                </div><!-- .seo1-rv-item -->
+                </div>
                 <?php endforeach; ?>
-                </div><!-- .seo1-rv-accordion -->
+                </div>
             <?php else : ?>
-                <div style="padding:32px 20px;text-align:center;color:#646970">
-                    <span class="dashicons dashicons-warning" style="display:block;margin:0 auto 8px;font-size:32px;width:32px;height:32px;color:#c3c4c7"></span>
+                <div class="seo1-empty">
+                    <span class="dashicons dashicons-warning"></span>
                     <?php esc_html_e('Không thể tải danh sách brand từ API.', 'seo1-adbanner'); ?>
                 </div>
             <?php endif; ?>
@@ -1207,7 +1372,6 @@ final class SEO1_Admin
 
     private static function render_section_shortcodes(string $prefix): void
     {
-        // placement => [desc, attrs, notes]
         $placements = [
             'catfish'      => [
                 'desc'  => 'Banner dính đáy trang, có nút đóng',
@@ -1215,19 +1379,19 @@ final class SEO1_Admin
                 'notes' => 'Tự động chèn qua wp_footer — không cần đặt shortcode',
             ],
             'slider'       => [
-                'desc'  => 'Băng chuyền logo brand (marquee animation)',
+                'desc'  => 'Băng chuyền logo brand (marquee)',
                 'attrs' => '',
                 'notes' => '',
             ],
             'button'       => [
                 'desc'  => 'Nút CTA (Đăng nhập / Cược Ngay)',
                 'attrs' => '',
-                'notes' => 'Mặc định không cần position — có thể thêm position="1" hoặc position="2" để chỉ định slot cụ thể',
+                'notes' => 'Thêm position="1" hoặc position="2" để chỉ định slot cụ thể',
             ],
             'toplist'      => [
                 'desc'  => 'Bảng xếp hạng nhà cái',
                 'attrs' => '',
-                'notes' => 'Dữ liệu lấy từ server theo site ID',
+                'notes' => '',
             ],
             'brands'       => [
                 'desc'  => 'Danh sách brand kèm logo',
@@ -1235,82 +1399,60 @@ final class SEO1_Admin
                 'notes' => '',
             ],
             'brand-button' => [
-                'desc'  => 'Cột nút ảnh brand (brand-button slot)',
+                'desc'  => 'Cột nút ảnh brand',
                 'attrs' => '',
-                'notes' => 'Click URL lấy từ brand login domain',
+                'notes' => '',
             ],
             'popup'        => [
                 'desc'  => 'Banner popup với delay',
                 'attrs' => 'delay="3"',
-                'notes' => 'delay: số giây trước khi hiện (mặc định: 3)',
+                'notes' => 'delay: giây trước khi hiện (mặc định: 3)',
             ],
         ];
         ?>
         <div class="seo1-panel">
             <div class="seo1-panel-head">
-                <span class="dashicons dashicons-editor-code"></span>
                 <h2><?php esc_html_e('Shortcode Reference', 'seo1-adbanner'); ?></h2>
                 <span class="seo1-badge"><?php echo count($placements); ?> placements</span>
-            </div>
-
-            <!-- Info bar -->
-            <div style="display:flex;align-items:center;gap:16px;padding:10px 18px;background:#f0f6fd;border-bottom:1px solid #ebebec;font-size:12px;flex-wrap:wrap">
-                <span style="color:#3c434a">
-                    <?php esc_html_e('Prefix hiện tại:', 'seo1-adbanner'); ?>
-                    <code style="background:#fff;border:1px solid #c5d9f5;padding:1px 8px;border-radius:4px;font-size:12px;color:#2271b1;font-weight:700"><?php echo esc_html($prefix); ?></code>
-                </span>
-                <span style="color:#646970">
-                    <?php esc_html_e('Dùng shortcode chuẩn', 'seo1-adbanner'); ?>
-                    <code style="background:#fff;border:1px solid #dcdcde;padding:1px 6px;border-radius:3px;font-size:11px">[seo1_banner placement="..."]</code>
-                    <?php esc_html_e('hoặc shortcode rút gọn', 'seo1-adbanner'); ?>
-                    <code style="background:#fff;border:1px solid #dcdcde;padding:1px 6px;border-radius:3px;font-size:11px">[<?php echo esc_html($prefix); ?>_placement]</code>
+                <span style="margin-left:auto;font-size:12px;color:#646970">
+                    <?php esc_html_e('Prefix:', 'seo1-adbanner'); ?>
+                    <code style="background:#f0f0f1;border:1px solid #e2e8f0;padding:1px 7px;border-radius:4px;font-size:12px;color:#2271b1;font-weight:700"><?php echo esc_html($prefix); ?></code>
                 </span>
             </div>
 
-            <!-- Shortcode list -->
-            <div style="padding:12px 18px 18px">
+            <div class="seo1-sc-grid">
                 <?php foreach ($placements as $type => $info) :
                     $tag_suffix = str_replace('-', '_', $type);
-                    $prefix_sc  = '[' . esc_html($prefix) . '_' . $tag_suffix . ($info['attrs'] ? ' ' . $info['attrs'] : '') . ']';
+                    $short_sc   = '[' . $prefix . '_' . $tag_suffix . ($info['attrs'] ? ' ' . $info['attrs'] : '') . ']';
                     $std_sc     = '[seo1_banner placement="' . $type . '"' . ($info['attrs'] ? ' ' . $info['attrs'] : '') . ']';
                 ?>
-                <div style="display:grid;grid-template-columns:180px 1fr auto;gap:8px 14px;align-items:start;padding:10px 0;border-bottom:1px solid #f0f0f1">
-
-                    <!-- Prefix shortcode -->
-                    <div>
-                        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                            <code style="background:#f0f0f1;padding:3px 8px;border-radius:4px;font-size:12px;white-space:nowrap"><?php echo esc_html($prefix_sc); ?></code>
-                        </div>
-                        <button type="button" class="seo1-copy-btn" data-copy="<?php echo esc_attr($prefix_sc); ?>" style="margin-top:4px">
-                            <?php esc_html_e('Sao chép', 'seo1-adbanner'); ?>
-                        </button>
+                <div class="seo1-sc-card">
+                    <div class="seo1-sc-card-head">
+                        <span class="seo1-sc-placement-tag"><?php echo esc_html($type); ?></span>
+                        <span class="seo1-sc-card-desc"><?php echo esc_html($info['desc']); ?></span>
                     </div>
-
-                    <!-- Description + standard shortcode + notes -->
-                    <div>
-                        <div style="font-size:12px;font-weight:600;color:#1d2327;margin-bottom:2px"><?php echo esc_html($info['desc']); ?></div>
-                        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                            <code style="background:#fff8e1;border:1px solid #f0c040;color:#78490a;padding:1px 7px;border-radius:3px;font-size:11px"><?php echo esc_html($std_sc); ?></code>
-                            <button type="button" class="seo1-copy-btn" data-copy="<?php echo esc_attr($std_sc); ?>">
+                    <div class="seo1-sc-card-body">
+                        <div class="seo1-sc-code-row">
+                            <code class="seo1-sc-code-block"><?php echo esc_html($short_sc); ?></code>
+                            <button type="button" class="button seo1-copy-btn" data-copy="<?php echo esc_attr($short_sc); ?>">
+                                <?php esc_html_e('Sao chép', 'seo1-adbanner'); ?>
+                            </button>
+                        </div>
+                        <div class="seo1-sc-code-row seo1-sc-code-row-alt">
+                            <code class="seo1-sc-code-block seo1-sc-code-alt"><?php echo esc_html($std_sc); ?></code>
+                            <button type="button" class="button seo1-copy-btn" data-copy="<?php echo esc_attr($std_sc); ?>">
                                 <?php esc_html_e('Sao chép', 'seo1-adbanner'); ?>
                             </button>
                         </div>
                         <?php if ($info['notes']) : ?>
-                            <div style="margin-top:3px;font-size:11px;color:#787c82;line-height:1.4"><?php echo esc_html($info['notes']); ?></div>
+                            <p class="seo1-sc-note"><?php echo esc_html($info['notes']); ?></p>
                         <?php endif; ?>
                     </div>
-
-                    <!-- Placement tag -->
-                    <div style="padding-top:3px">
-                        <span style="display:inline-block;background:#e8f0fe;color:#2271b1;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;white-space:nowrap"><?php echo esc_html($type); ?></span>
-                    </div>
-
                 </div>
                 <?php endforeach; ?>
             </div>
 
-            <!-- Footer note -->
-            <div style="padding:10px 18px;background:#f8f9fa;border-top:1px solid #ebebec;font-size:11px;color:#787c82">
+            <div style="padding:10px 18px;background:#f9fafb;border-top:1px solid #e2e8f0;font-size:11px;color:#787c82">
                 <?php esc_html_e('Catfish và Popup được chèn tự động vào footer — không cần shortcode trừ khi muốn kiểm soát vị trí thủ công.', 'seo1-adbanner'); ?>
             </div>
         </div>

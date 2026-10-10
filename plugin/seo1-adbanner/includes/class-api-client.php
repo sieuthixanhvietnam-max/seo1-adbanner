@@ -5,11 +5,17 @@ defined('ABSPATH') || exit;
 
 /**
  * Handles all HTTP communication with the SEO1 Ad Banner server.
- * All responses are cached in WordPress transients.
+ *
+ * Cache (1.1.7, như bản gốc): transient theo TTL; hết hạn thì lấy lại trực tiếp từ API.
+ * Thêm: mỗi trang chỉ đọc 1 lần; dữ liệu đổi so với lần trước → báo xoá page cache.
  */
 final class SEO1_API_Client
 {
     private const REQUEST_TIMEOUT = 5; // seconds
+    private const HASH_PREFIX     = 'seo1_hash_'; // md5 dữ liệu lần trước (để phát hiện thay đổi)
+
+    /** Lịch cron của bản 1.1.0–1.1.6, chỉ còn dùng để gỡ khi nâng cấp. */
+    public const LEGACY_HOOKS = ['seo1_adbanner_refresh', 'seo1_adbanner_tick'];
 
     public function __construct(
         private readonly string $api_url,
@@ -22,40 +28,24 @@ final class SEO1_API_Client
      *
      * @return array<string,mixed>|false
      */
-    public function get_site_data(string $site_id, string $domain = ''): array|false
+    public function get_site_data(string $site_id, string $domain = '', bool $force = false): array|false
     {
-        $key    = 'seo1_site_' . sanitize_key($site_id);
-        $cached = get_transient($key);
-        if ($cached !== false) {
-            return $cached;
-        }
-
+        $key  = 'seo1_site_' . sanitize_key($site_id);
         $base = trailingslashit($this->api_url) . 'api/v2/site/' . rawurlencode($site_id) . '/banners';
         // Gửi domain để backend inject tracking_urls vào response
         $url  = $domain ? add_query_arg('domain', rawurlencode($domain), $base) : $base;
-        $data = $this->request($url);
-        if ($data === false) {
-            return false;
-        }
 
-        set_transient($key, $data, $this->cache_ttl);
-        return $data;
+        return $this->cached($key, $url, $this->cache_ttl, $force);
     }
 
     /**
      * Fetch flat brand URL map: brand_id => login_url string.
-     * Handles both plain string values and object values with login_url key.
      *
      * @return array<string,string>
      */
-    public function get_brand_urls(): array
+    public function get_brand_urls(bool $force = false): array
     {
-        $key    = 'seo1_brand_urls';
-        $cached = get_transient($key);
-        if ($cached !== false) return (array) $cached;
-
-        $url  = trailingslashit($this->api_url) . 'api/brands/urls';
-        $data = $this->request($url);
+        $data = $this->cached('seo1_brand_urls', trailingslashit($this->api_url) . 'api/brands/urls', $this->brand_cache_ttl, $force);
         if ($data === false) return [];
 
         $urls = [];
@@ -66,34 +56,29 @@ final class SEO1_API_Client
                 $urls[$bid] = (string) $val['login_url'];
             }
         }
-        set_transient($key, $urls, $this->brand_cache_ttl);
         return $urls;
     }
 
     /**
      * Get full brand objects: brand_id => { login_url, name, logo_url, button_image }
-     * Not cached — used only in admin context.
+     * Admin only — always fresh.
      *
      * @return array<string,array<string,mixed>>
      */
     public function get_brand_objects(): array
     {
-        $url  = trailingslashit($this->api_url) . 'api/brands/urls';
-        $data = $this->request($url);
+        $data = self::request(trailingslashit($this->api_url) . 'api/brands/urls', self::REQUEST_TIMEOUT);
         if ($data === false) return [];
 
-        $base = rtrim($this->api_url, '/');
-
+        $base   = rtrim($this->api_url, '/');
         $result = [];
         foreach ($data as $bid => $val) {
             if (is_array($val)) {
-                // Resolve relative logo paths — prefer button_image, fall back to logo_url
                 foreach (['button_image', 'logo_url'] as $field) {
                     if (!empty($val[$field]) && str_starts_with($val[$field], '/')) {
                         $val[$field] = $base . $val[$field];
                     }
                 }
-                // Normalise: always expose as button_image for admin rendering
                 if (empty($val['button_image']) && !empty($val['logo_url'])) {
                     $val['button_image'] = $val['logo_url'];
                 }
@@ -106,51 +91,33 @@ final class SEO1_API_Client
     }
 
     /**
-     * Get list of active sites: [{id, name}]
-     * Cached for 5 minutes.
+     * Get list of active sites: [{id, name}] — cached 5 minutes (admin).
      *
      * @return array<int,array<string,mixed>>
      */
-    public function get_sites(): array
+    public function get_sites(bool $force = false): array
     {
-        $key    = 'seo1_sites_list';
-        $cached = get_transient($key);
-        if ($cached !== false) return (array) $cached;
-
-        $url  = trailingslashit($this->api_url) . 'api/v2/sites';
-        $data = $this->request($url);
-        if ($data === false) return [];
-
-        set_transient($key, $data, 5 * MINUTE_IN_SECONDS);
-        return $data;
+        $data = $this->cached('seo1_sites_list', trailingslashit($this->api_url) . 'api/v2/sites', 5 * MINUTE_IN_SECONDS, $force);
+        return $data === false ? [] : $data;
     }
 
     /**
-     * Get brand_id → button_image map for admin UI logo display.
-     * Always fetches fresh from the API (no transient) — admin only.
-     * Tries /api/v2/sites to get a valid site ID, then /api/v2/site/:id/banners.
+     * Get brand_id → button_image map for admin UI logo display. Always fresh.
      *
-     * @return array<string,string> brand_id → absolute image URL
+     * @return array<string,string>
      */
     public function get_brand_images_for_admin(): array
     {
-        // Step 1: get any valid site ID (no transient — bypass stale cache)
-        delete_transient('seo1_sites_list');
-        $sites = $this->get_sites();
-        if (empty($sites)) {
-            return [];
-        }
+        $sites = $this->get_sites(true);
+        if (empty($sites)) return [];
 
-        $images = [];
-        // Fetch the first site's data (brands list is global, not site-specific)
         $site_id = sanitize_key($sites[0]['id'] ?? '');
         if (!$site_id) return [];
 
-        $trans_key = 'seo1_site_' . $site_id;
-        delete_transient($trans_key);
-        $site_data = $this->get_site_data($site_id);
+        $site_data = $this->get_site_data($site_id, '', true);
         if (empty($site_data['brands'])) return [];
 
+        $images = [];
         foreach ($site_data['brands'] as $b) {
             $bid = $b['id'] ?? '';
             $img = $b['button_image'] ?? '';
@@ -164,26 +131,58 @@ final class SEO1_API_Client
     }
 
     /**
-     * Auto-detect site ID from a domain name.
-     * Result is cached for 1 hour (domain→site mapping rarely changes).
+     * Auto-detect site ID from a domain name. Cached 1 hour (+ bản cũ khi API lỗi).
      */
     public function detect_site(string $domain): string|false
     {
-        $key    = 'seo1_detect_' . md5($domain);
-        $cached = get_transient($key);
-        if ($cached !== false) {
-            return (string) $cached;
-        }
-
         $url  = add_query_arg('domain', rawurlencode($domain), trailingslashit($this->api_url) . 'api/v2/site/detect');
-        $data = $this->request($url);
+        $data = $this->cached('seo1_detect_' . md5($domain), $url, HOUR_IN_SECONDS, false);
         if ($data === false || empty($data['id'])) {
             return false;
         }
+        return sanitize_key((string) $data['id']);
+    }
 
-        $site_id = sanitize_key($data['id']);
-        set_transient($key, $site_id, HOUR_IN_SECONDS);
-        return $site_id;
+    // ── Cache core ─────────────────────────────────────────────────────────────
+
+    /**
+     * @return array<string,mixed>|false
+     */
+    private function cached(string $key, string $url, int $ttl, bool $force): array|false
+    {
+        static $memo = [];
+
+        if (!$force) {
+            if (isset($memo[$key])) {
+                return $memo[$key];
+            }
+            $cached = get_transient($key);
+            if (is_array($cached)) {
+                return $memo[$key] = $cached;
+            }
+        }
+
+        $data = self::request($url, self::REQUEST_TIMEOUT);
+        if ($data === false) {
+            return false;
+        }
+
+        set_transient($key, $data, max(5, $ttl));
+        $memo[$key] = $data;
+
+        // Banner / link brand đổi so với lần lấy trước → báo để xoá page cache,
+        // nếu không trang đã cache (LiteSpeed...) vẫn hiện banner/link cũ đến khi hết TTL.
+        if (str_starts_with($key, 'seo1_site_') || $key === 'seo1_brand_urls') {
+            $hash = md5(serialize($data));
+            $old  = get_option(self::HASH_PREFIX . $key, '');
+            if ($old !== $hash) {
+                update_option(self::HASH_PREFIX . $key, $hash, false);
+                if ($old !== '') {
+                    do_action('seo1_adbanner_data_changed', $key);
+                }
+            }
+        }
+        return $data;
     }
 
     /**
@@ -191,10 +190,10 @@ final class SEO1_API_Client
      *
      * @return array<string,mixed>|false
      */
-    private function request(string $url): array|false
+    private static function request(string $url, int $timeout): array|false
     {
         $response = wp_remote_get($url, [
-            'timeout'    => self::REQUEST_TIMEOUT,
+            'timeout'    => $timeout,
             'user-agent' => 'SEO1-AdBanner-WP/' . SEO1_ADBANNER_VERSION . '; ' . home_url(),
         ]);
 
@@ -206,14 +205,11 @@ final class SEO1_API_Client
             return false;
         }
 
-        $code = wp_remote_retrieve_response_code($response);
-        if ($code !== 200) {
+        if (wp_remote_retrieve_response_code($response) !== 200) {
             return false;
         }
 
-        $body = wp_remote_retrieve_body($response);
-        $json = json_decode($body, associative: true);
-
+        $json = json_decode(wp_remote_retrieve_body($response), associative: true);
         if (!is_array($json) || empty($json['success']) || !isset($json['data'])) {
             return false;
         }
@@ -228,15 +224,16 @@ final class SEO1_API_Client
     {
         if ($site_id !== null) {
             delete_transient('seo1_site_' . sanitize_key($site_id));
-        } else {
-            global $wpdb;
-            $wpdb->query(
-                $wpdb->prepare(
-                    "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
-                    '_transient_seo1_%',
-                    '_transient_timeout_seo1_%'
-                )
-            );
+            return;
         }
+
+        global $wpdb;
+        $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
+                '_transient_seo1_%',
+                '_transient_timeout_seo1_%'
+            )
+        );
     }
 }
